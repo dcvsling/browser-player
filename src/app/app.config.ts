@@ -1,5 +1,5 @@
-import { ApplicationConfig, ENVIRONMENT_INITIALIZER, importProvidersFrom, makeEnvironmentProviders } from '@angular/core';
-import { provideRouter, withEnabledBlockingInitialNavigation } from '@angular/router';
+import { ApplicationConfig, ENVIRONMENT_INITIALIZER, importProvidersFrom, inject, makeEnvironmentProviders } from '@angular/core';
+import { Router, provideRouter, withEnabledBlockingInitialNavigation } from '@angular/router';
 
 import { routes } from './app.routes';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
@@ -27,16 +27,13 @@ export const appConfig: ApplicationConfig = {
     ),
     {
       provide: ENVIRONMENT_INITIALIZER,
-      useValue: () => {
+      useValue: function(): void {
         const l = window.location;
         if (l.search[1] === '/' ) {
           var decoded = l.search.slice(1).split('&').map(function(s) {
             return s.replace(/~and~/g, '&')
           }).join('?');
-          window.history.replaceState(
-            null,
-            '',
-            l.pathname.slice(0, -1) + decoded + l.hash);
+          inject(Router).navigateByUrl(l.pathname.slice(0, -1) + decoded + l.hash);
         }
       },
       multi: true
