@@ -6,24 +6,36 @@
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
+
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <script type="text/javascript">
+    // (function(l) {
+    //   if (l.search[0] === '?' ) {
+    //     var [p, q, r] = l.search.slice(1).split('&');
+    //     var path = p?.split('=')[1];
+    //     var qs = q?.split('~and~').join('&');
+    //     qs = qs?.length > 0 ? '?' + qs : '';
+    //     var rs = r?.split('~and~').join('&');
+    //     rs = rs?.length > 0 ? '#' + qs : '';
+    //     window.history.replaceState(null, null, `${path}${qs}${rs}`);
+    //   }
+    // }(window.location))
+    (function(l) {
+        if (l.search[1] === '/' ) {
+          var decoded = l.search.slice(1).split('&').map(function(s) {
+            return s.replace(/~and~/g, '&')
+          }).join('?');
+          window.history.replaceState(null, null,
+              l.pathname.slice(0, -1) + decoded + l.hash
+          );
+        }
+      }(window.location))
+    </script>
 </head>
 <body class="mat-typography">
-  <app-root></app-root>
   <noscript>Please enable JavaScript to continue using this application.</noscript>
-  <script type="text/javascript">
-    (function(l) {
-      if (l.search[0] === '?' ) {
-        var [p, q, r] = l.search.slice(1).split('&');
-        var path = p?.split('=')[1];
-        var qs = q?.split('~and~').join('&');
-        qs = qs?.length > 0 ? '?' + qs : '';
-        var rs = r?.split('~and~').join('&');
-        rs = rs?.length > 0 ? '#' + qs : '';
-        window.history.replaceState(null, null, `${path}${qs}${rs}`);
-      }
-    }(window.location))
-  </script>
+
+    <app-root></app-root>
 </body>
 </html>
