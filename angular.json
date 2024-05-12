@@ -23,7 +23,7 @@
             "assets": [
               "src/favicon.ico",
               "src/assets",
-              "src/404.htm"
+              "src/404.html"
             ],
             "styles": [
               "src/custom-theme.scss",
