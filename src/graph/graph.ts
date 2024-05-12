@@ -1,6 +1,5 @@
 
 import { ApiRequest } from "./api";
-import { Cache } from '../storage';
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { MsalBroadcastService } from '@azure/msal-angular';
