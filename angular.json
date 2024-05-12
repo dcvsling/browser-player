@@ -23,9 +23,7 @@
             "assets": [
               "src/favicon.ico",
               "src/assets",
-              "src/assets/worker/worker.js",
-              "src/assets/worker/const.js",
-              "src/assets/worker/error.js"
+              "src/404.htm"
             ],
             "styles": [
               "src/custom-theme.scss",
