@@ -25,19 +25,6 @@ export const appConfig: ApplicationConfig = {
       ? [withEnabledBlockingInitialNavigation()]
       : []),
     ),
-    {
-      provide: ENVIRONMENT_INITIALIZER,
-      useValue: function(): void {
-        const l = window.location;
-        if (l.search[1] === '/' ) {
-          var decoded = l.search.slice(1).split('&').map(function(s) {
-            return s.replace(/~and~/g, '&')
-          }).join('?');
-          inject(Router).navigateByUrl(l.pathname.slice(0, -1) + decoded + l.hash);
-        }
-      },
-      multi: true
-    },
     VIDEO_LIST_ACEESSOR_PROVIDER,
     provideLocalStorageDataProvider('video'),
     provideAnimationsAsync(),
