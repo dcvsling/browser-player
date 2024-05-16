@@ -57,31 +57,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
   }
   ngOnInit() {
-    // this._task.subscribe(() => {
-    //   this.auth.instance.handleRedirectPromise()
-    //     .then(() => {
-    //       if(!this.auth.instance.getActiveAccount())
-    //         this.auth.loginRedirect();
-    //     });
-    // });
-    // this._task.subscribe(() => {
-    //   this.auth.instance.handleRedirectPromise()
-    //     .then(() => {
-    //       if(!this.auth.instance.getActiveAccount())
-    //       {
-    //         // this.auth.loginRedirect();
-    //         this.auth.loginPopup()
-    //           .subscribe({
-    //             next: (result) => {
-    //               console.log(result);
-    //             },
-    //             error: (error) => console.log(error)
-    //           });
-    //       }
-    //     });
-    // });
     this.checkIsLogin();
-
     this.auth.instance.enableAccountStorageEvents(); // Optional - This will enable ACCOUNT_ADDED and ACCOUNT_REMOVED events emitted when a user logs in or out of another tab or window
     this.msalBroadcastService.msalSubject$
       .pipe(

@@ -4,7 +4,7 @@ import { MsalGuard } from '@azure/msal-angular';
 
 export const routes: Routes = [
   {
-    path: '',
+    path: 'list',
     component: ListComponent,
     canActivate: [],
     pathMatch: 'full'
@@ -19,11 +19,6 @@ export const routes: Routes = [
     component: SettingsComponent,
     canActivate: [MsalGuard]
   },
-  // {
-  //   path: '',
-  //   redirectTo: '/list',
-  //   pathMatch: 'full'
-  // },
   {
     path: '**',
     component: NotFound
