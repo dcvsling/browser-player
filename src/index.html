@@ -9,7 +9,7 @@
 
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-  <!-- <script type="text/javascript">
+  <script type="text/javascript">
     // (function(l) {
     //   if (l.search[0] === '?' ) {
     //     var [p, q, r] = l.search.slice(1).split('&');
@@ -21,17 +21,17 @@
     //     window.history.replaceState(null, null, `${path}${qs}${rs}`);
     //   }
     // }(window.location))
-    // (function(l) {
-    //     if (l.search[1] === '/' ) {
-    //       var decoded = l.search.slice(1).split('&').map(function(s) {
-    //         return s.replace(/~and~/g, '&')
-    //       }).join('?');
-    //       window.history.replaceState(null, null,
-    //           l.pathname.slice(0, -1) + decoded + l.hash
-    //       );
-    //     }
-    //   }(window.location)) -->
-    <!-- </script> -->
+    (function(l) {
+        if (l.search[1] === '/' ) {
+          var decoded = l.search.slice(1).split('&').map(function(s) {
+            return s.replace(/~and~/g, '&')
+          }).join('?');
+          window.history.replaceState(null, null,
+              l.pathname.slice(0, -1) + decoded + l.hash
+          );
+        }
+      }(window.location))
+   </script>
 </head>
 <body class="mat-typography">
   <noscript>Please enable JavaScript to continue using this application.</noscript>
