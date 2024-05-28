@@ -46,7 +46,7 @@ export function provideMsalAuth() {
         auth: {
           clientId: "4c18105a-e398-4e42-b815-864ee1dca919",
           authority: "https://login.microsoftonline.com/consumers",
-          redirectUri: "/",
+          redirectUri: "/auth",
           postLogoutRedirectUri: "/",
         },
         cache: {
@@ -56,7 +56,7 @@ export function provideMsalAuth() {
           allowNativeBroker: false, // Disables WAM Broker
           loggerOptions: {
             loggerCallback: console.log,
-            logLevel: LogLevel.Info,
+            logLevel: LogLevel.Warning,
             piiLoggingEnabled: false
           }
         }
@@ -68,7 +68,7 @@ export function provideMsalAuth() {
         interactionType: InteractionType.Redirect, // MSAL Interceptor Configuration
           protectedResourceMap: new Map([
             [`https://graph.microsoft.com/v1.0/me`, ["user.read"]],
-            [`https://graph.microsoft.com/v1.0/me/drive/items/B2D7A30C38920DE8!134726/children`, ["user.read", "files.read", "files.read.all"]],
+            [`https://graph.microsoft.com/v1.0/drives/`, ["user.read", "files.read", "files.read.all"]], //B2D7A30C38920DE8/items/B2D7A30C38920DE8!134726/children?$expand=thumbnails
             [`https://snz04pap002files.storage.live.com/`, ["user.read", "files.read"]],
           ]),
       }

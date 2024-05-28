@@ -12,7 +12,8 @@ export namespace ApiRequest {
         scopes: ["User.Read"]
     };
     export const files: ApiRequest = {
-        endpoint: `https://graph.microsoft.com/v1.0/me/drive/items/B2D7A30C38920DE8!134726/children?$expand=thumbnails`,
+
+        endpoint: `https://graph.microsoft.com/v1.0/drives/B2D7A30C38920DE8/items/B2D7A30C38920DE8!134726/children?$expand=thumbnails`,
         scopes: ["User.Read", "Files.Read", "Files.Read.All"],
         forceRefresh: true
     };

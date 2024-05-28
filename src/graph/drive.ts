@@ -17,21 +17,22 @@ export interface LazyLoad<T> {
 export class DriveClient {
     constructor(private graph: MSGraphClient, private http: HttpClient) { }
     load(): Observable<LazyLoad<VideoMetadata[]>> {
-      return  this.graph.get<DriveResponse>(ApiRequest.files)
+      return  this.graph.get<DriveResponse<VideoMetadata>>(ApiRequest.files)
         .pipe(
           filter(tree => tree !== undefined && tree.value.length !== 0),
+
           map(r => ({
             nextUrl: r?.['@odata.nextLink'] ?? '',
-            data: r?.value ?? [],
+            data: (r?.value ?? []).filter(x => x.file.mimeType.indexOf('video/mp4') >= 0),
             load: this.loadNext(r),
             count: r?.['@odata.count']!
           })),
         )
     }
-    private loadNext(res: DriveResponse | undefined): () => Observable<LazyLoad<VideoMetadata[]>> {
+    private loadNext(res: DriveResponse<VideoMetadata> | undefined): () => Observable<LazyLoad<VideoMetadata[]>> {
       return () => {
         if(!res?.['@odata.nextLink']) return Observable.create({ data: [] });
-        return this.http.get<DriveResponse>(res['@odata.nextLink'])
+        return this.http.get<DriveResponse<VideoMetadata>>(res['@odata.nextLink'])
           .pipe(
             filter(tree => tree !== undefined && tree.value.length !== 0),
             map(r => (

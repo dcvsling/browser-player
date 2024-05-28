@@ -1,5 +1,5 @@
 
-import { Subject, filter, map, takeUntil } from 'rxjs';
+import { Observable, Subject, filter, from, iif, map, takeUntil, tap } from 'rxjs';
 import { Component, Inject, OnDestroy, OnInit, Signal, WritableSignal, computed, inject, signal } from '@angular/core';
 import { RouterModule } from '@angular/router';
 import { MSAL_GUARD_CONFIG, MsalBroadcastService, MsalGuardConfiguration, MsalService } from '@azure/msal-angular';
@@ -15,16 +15,18 @@ import { NgIf } from '@angular/common';
   imports: [RouterModule, MatToolbarModule, MatButtonModule, MatIconModule, MatGridListModule, NgIf],
   template: `
     <mat-toolbar class="topbar">
+      <button mat-icon-button routerLink="/player"><mat-icon>play_arrow</mat-icon></button>
       <button mat-icon-button routerLink="/list"><mat-icon>folder</mat-icon></button>
+      <!-- <button mat-icon-button routerLink="/settings"><mat-icon>setting</mat-icon></button> -->
       <span>{{ path() }}</span>
-      <button mat-icon-button routerLink="/player"><mat-icon>player</mat-icon></button>
-      <button mat-icon-button routerLink="/settings"><mat-icon>setting</mat-icon></button>
-      <button mat-icon-button (click)="loginRedirect()" *ngIf="isLogin() else logoutT"><mat-icon>login</mat-icon></button>
+      <button mat-icon-button (click)="loginRedirect()" *ngIf="!isLogin() else logoutT"><mat-icon>login</mat-icon></button>
       <ng-template #logoutT>
         <button mat-icon-button (click)="logout(false)"><mat-icon>logout</mat-icon></button>
       </ng-template>
     </mat-toolbar>
-    <router-outlet></router-outlet>
+    <div class="container">
+      <router-outlet></router-outlet>
+    </div>
 
   `,
   styles: [`
@@ -57,8 +59,10 @@ export class AppComponent implements OnInit, OnDestroy {
 
   }
   ngOnInit() {
-    this.checkIsLogin();
     this.auth.instance.enableAccountStorageEvents(); // Optional - This will enable ACCOUNT_ADDED and ACCOUNT_REMOVED events emitted when a user logs in or out of another tab or window
+    this.auth.handleRedirectObservable()
+    .pipe(tap(r => this.isLogin.set(true)))
+    this.checkIsLogin();
     this.msalBroadcastService.msalSubject$
       .pipe(
         filter((msg: EventMessage) => msg.eventType === EventType.ACCOUNT_ADDED || msg.eventType === EventType.ACCOUNT_REMOVED),
@@ -85,7 +89,8 @@ export class AppComponent implements OnInit, OnDestroy {
           this.auth.instance.setActiveAccount(accounts[0]);
         }
 
-      })
+      });
+
   }
   loginRedirect() {
     if (this.msalGuardConfig.authRequest){

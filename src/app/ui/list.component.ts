@@ -2,7 +2,7 @@
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { AsyncPipe, NgIf, NgTemplateOutlet, NgOptimizedImage, NgFor, NgClass  } from "@angular/common";
 import { Component, ModelSignal, Signal, WritableSignal, computed, inject, model, signal, viewChild } from "@angular/core";
-import { VideoMetadata } from "../../graph";
+import { VideoMetadata as metadata} from "../../graph";
 import { AuthModule } from "../../auth/providers";
 import { MatGridListModule } from '@angular/material/grid-list';
 import { MatListModule } from '@angular/material/list';
@@ -10,13 +10,18 @@ import { of } from "rxjs";
 import { EndOfScrollDirective, ForOf, KeyBindingDirective } from "../../weidges";
 import { MatProgressBarModule } from '@angular/material/progress-bar'
 import { ItemMode, ListItemComponent } from "./listItem.component";
-import { VideoSource } from "../../graph/video.datasource";
+import { VideoSource } from "../../graph";
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { PlayerComponent } from "./player.component";
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatIconModule } from "@angular/material/icon";
 import { VideoListAccessor } from '../services/list.local';
+
+declare interface VideoMetadata extends metadata{
+  selected?: boolean;
+}
+
 @Component({
   selector: 'grid-list',
   template: `
@@ -37,13 +42,16 @@ import { VideoListAccessor } from '../services/list.local';
         aria-label="Select page">
     </mat-paginator>
   </mat-toolbar>
-  <div [ngClass]="modeClass()" >
+  <div [ngClass]="modeClass()" #item>
     <list-item
+      #listItem
       *ngFor="let video of current()"
       [item]="video"
-      class="list-item"
-      (click)="addToList(video)"
-      [mode]="mode()">
+      [ngClass]="itemClassMode(video)"
+      
+      (click)="itemclick(video)"
+      [mode]="mode()"
+       >
     </list-item>
   </div>
 
@@ -61,9 +69,8 @@ import { VideoListAccessor } from '../services/list.local';
     }
     .row {
       display: block;
-      list-item {
+      & list-item {
         display: grid;
-
       }
     }
     mat-toolbar, mat-button-toggle, mat-button-toggle-group  {
@@ -77,6 +84,9 @@ import { VideoListAccessor } from '../services/list.local';
       margin: 0;
       padding: 0;
       overflow-x: hidden;
+      &.active {
+        border: 2px solid red;
+      }
     }
     .demo-paginator {
       width: 100%;
@@ -89,7 +99,6 @@ export class ListComponent {
   opened: ModelSignal<boolean> = model(true);
   // current: WritableSignal<VideoMetadata[]> = signal([], { equal: (l, r) => l.length === r.length });
   current: WritableSignal<VideoMetadata[]> = signal([]);
-  player: Signal<PlayerComponent> = viewChild.required(PlayerComponent);
   list: VideoListAccessor = inject(VideoListAccessor);
 
   // source: VideoSource = inject(DataProvider<VideoMetadata[]>);
@@ -112,13 +121,17 @@ export class ListComponent {
     this.source.connect({ viewChange: of({ start: e.pageIndex * e.pageSize, end: e.pageIndex * e.pageSize + e.pageSize }) })
       .subscribe(data => this.current.set([...data]));
   }
+  itemclick(video: VideoMetadata) {
+    video.selected = !(video.selected ?? false);
+    this.addToList(video);
+  }
   addToList(metadata: VideoMetadata) {
-    this.isSelected(metadata)
-      ? this.list.current.videos.splice(this.list.current.videos.indexOf(metadata), 1)
+    this.list.current.exist(metadata)
+      ? this.list.current.remove(metadata)
       : this.list.current.append(metadata);
 
   }
-  isSelected(metadata: VideoMetadata): boolean {
-    return this.list.current.videos.indexOf(metadata) >= 0;
+  itemClassMode(video: VideoMetadata) {
+    return 'list-item ' + (video.selected ? 'active' : '');
   }
 }

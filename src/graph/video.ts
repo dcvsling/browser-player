@@ -30,13 +30,9 @@ export interface VideoMetadata {
     small: { height: number, url: string, width: number };
   }[];
 }
-export interface DriveResponse {
+export interface DriveResponse<T> {
   [`@odata.context`]: string;
   [`@odata.count`]: number;
   [`@odata.nextLink`]: string;
-  value: VideoMetadata[];
-}
-
-export function getDownloadUrl(metadata: VideoMetadata): string {
-  return metadata["@microsoft.graph.downloadUrl"];
+  value: T[];
 }

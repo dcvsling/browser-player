@@ -1,4 +1,5 @@
 
+
 import { Injectable, InjectionToken, Provider } from "@angular/core";
 import { VideoMetadata } from "../../graph";
 
@@ -7,46 +8,52 @@ export interface VideoListAccessor {
 }
 
 export const VideoListAccessor = new InjectionToken<VideoListAccessor>('VideoListAccessor');
-const CURRENT = Symbol.for('current');
+const CACHE_NAME = 'video-set';
+const CURRENT_NAME = 'current';
+const TEMP_LIST_NAME = 'temp';
 @Injectable({
   providedIn: 'root',
-  useFactory(): VideoSet {
-    return new VideoSet();
-  }
+  useValue: new VideoSet()
 })
 export class VideoSet implements VideoListAccessor {
-  private _lists: { [name: string | symbol ]: VideoList } = {}
-  get current(): VideoList { return this._lists[CURRENT] ??= new VideoList(this); };
+  private _lists: { [name: string]: VideoList } = {}
+  private currentName: string = TEMP_LIST_NAME;
+  get current(): VideoList { return this._lists[this.currentName] ??= new VideoList(); };
   constructor() {
-    document.addEventListener('unload', () => {
-      localStorage.setItem('video-lists', JSON.stringify(this._lists));
-    })
-    const data = localStorage.getItem('video-lists');
+    document.addEventListener('unload', () => this.save())
+    const data = localStorage.getItem(CACHE_NAME);
     if(data) {
       JSON.parse(data, (key, value) => {
-        if(value instanceof VideoList)
-        {
-          const { name, videos } = value;
-          this._lists[key] = new VideoList(this, name, videos);
+        if(value[CURRENT_NAME]) {
+          this.currentName = value[CURRENT_NAME];
         }
+        if(value instanceof VideoList)
+          this._lists[key] = new VideoList();
+
       })
     }
   }
+  private stringifySet(key: PropertyKey, value: any): any {
+    if(this.currentName in value) {
+      return this.currentName;
+    }
+    return 'toJson' in value ? value.toJson() : JSON.stringify(value);
+  }
   create(name: string, isCurrent: string): VideoList {
-    const list = new VideoList(this);
+    const list = new VideoList();
     list.setName(name);
     this._lists[name] = list;
     if(isCurrent)
-      this._lists['curren'] = list;
+      this.currentName = name;
     return list;
   }
 
   save() {
-    localStorage.setItem('video-lists', JSON.stringify(this._lists));
+    localStorage.setItem(CACHE_NAME, this.toJson());
   }
 
   toJson(): string {
-    return JSON.stringify(this._lists);
+    return JSON.stringify(this._lists, this.stringifySet.bind(this));
   }
 }
 
@@ -55,26 +62,40 @@ export const VIDEO_LIST_ACEESSOR_PROVIDER: Provider = {
   provide: VideoListAccessor, useExisting: VideoSet
 };
 
-export class VideoList {
+export class VideoList implements Iterable<VideoMetadata> {
   private cursor: number = -1;
-  constructor(private vs: VideoSet, private _name: string = '', public videos: VideoMetadata[] = []) { }
+  private _name: string = '';
+  private videos: VideoMetadata[] = [];
+  constructor({ name = '', videos = [] } : { name: string, videos: VideoMetadata[] } = { name: '', videos: [] }) {
+    this._name = name;
+    this.videos = videos;
+  }
+  [Symbol.iterator](): Iterator<VideoMetadata, any, undefined> {
+    return this.videos.values();
+  }
   get name(): string { return this._name; }
   setName(name: string) {
     this._name = name;
   }
   append(video: VideoMetadata) {
     this.videos.push(video);
-    this.vs.save();
   }
-  next(): VideoMetadata {
-    return this.find(++this.cursor);
+  next(): VideoMetadata;
+  next(current: VideoMetadata): VideoMetadata;
+  next(index: number): VideoMetadata;
+  next(index?: number | VideoMetadata): VideoMetadata {
+    return typeof index === 'object' ? this.videos[this.videos.indexOf(index) + 1]
+      : index ? this.find(this.cursor = index) 
+      : this.find(++this.cursor);
   }
   find(index: number): VideoMetadata {
     return this.videos[index];
   }
   remove(metadata: VideoMetadata) {
     this.videos.splice(this.videos.indexOf(metadata), 1);
-    this.vs.save();
+  }
+  exist(metadata: VideoMetadata ): boolean{
+    return !!this.videos.find(x => x.id === metadata.id);
   }
   toJson(): string {
     return JSON.stringify({ name: this._name, videos: this.videos });

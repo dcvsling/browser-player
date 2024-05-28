@@ -1,8 +1,13 @@
 import { Routes } from '@angular/router';
 import { SettingsComponent, NotFound, ListComponent, PlayerComponent } from './ui';
-import { MsalGuard } from '@azure/msal-angular';
+import { MsalGuard, MsalRedirectComponent } from '@azure/msal-angular';
+import { MatSidenavModule } from '@angular/material/sidenav';
 
 export const routes: Routes = [
+  {
+    path: 'auth',
+    component: MsalRedirectComponent
+  },
   {
     path: 'list',
     component: ListComponent,
