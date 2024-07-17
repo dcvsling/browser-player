@@ -97,20 +97,10 @@ export class ListComponent {
   modeClass: Signal<string> = computed(() => (this.mode() === 'row' ? 'row' : 'grid') + ' hide-scroll');
   mode: WritableSignal<ItemMode> = signal('grid');
   opened: ModelSignal<boolean> = model(true);
-  // current: WritableSignal<VideoMetadata[]> = signal([], { equal: (l, r) => l.length === r.length });
   current: WritableSignal<VideoMetadata[]> = signal([]);
   list: VideoListAccessor = inject(VideoListAccessor);
 
-  // source: VideoSource = inject(DataProvider<VideoMetadata[]>);
-  // index: WritableSignal<number> = signal(0);
-  // count: Signal<number> = computed(() => this.res().count);
-  // loadDebonce: WritableSignal<boolean> = signal(false);!
-  // private resStack: WritableSignal<LazyLoad<VideoMetadata[]>[]> = signal([]);
-  // private res: Signal<LazyLoad<VideoMetadata[]>> = computed(() => this.resStack()[this.index()]);
   constructor(public source: VideoSource) {
-  }
-  ngAfterContentChecked(): void {
-
   }
   ngOnInit() {
     this.source.connect({ viewChange: of({ start: 0, end: 8 }) })

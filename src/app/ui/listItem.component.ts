@@ -16,6 +16,7 @@ export type ItemMode = 'grid' | 'row';
         [src]="video().thumbnails[0].large.url"
         [alt]="video().name"
         loading="lazy"
+        
         />
     </ng-template>
 
@@ -33,6 +34,7 @@ export type ItemMode = 'grid' | 'row';
   styles: [`
     img {
       overflow: hidden;
+      height: 100%;
     }
     p {
       display: grid;
