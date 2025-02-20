@@ -1,4 +1,16 @@
 import { Configuration, LogLevel, PublicClientApplication } from '@azure/msal-browser';
+import { response } from 'express';
+
+export const AUTH_PKCE_CONFIG_TOKEN = {
+  "client_id": '4c18105a-e398-4e42-b815-864ee1dca919',
+  "response_type": "code",
+  "redirect_uri": "http://localhost:4200/auth",
+  "response_mode": "query",
+  "scope": "https://graph.microsoft.com/mail.read",
+  "state": "12345",
+  "code_challenge": "YTFjNjI1OWYzMzA3MTI4ZDY2Njg5M2RkNmVjNDE5YmEyZGRhOGYyM2IzNjdmZWFhMTQ1ODg3NDcxY2Nl",
+  "code_challenge_method": "S256",
+};
 // import { ClassToken, ValueToken } from 'js-di';
 /**
  * Configuration object to be passed to MSAL instance on creation.
@@ -11,6 +23,7 @@ export const MSAL_CONFIG_TOKEN = {
   value: {
     auth: {
         clientId: "4c18105a-e398-4e42-b815-864ee1dca919",
+        response_type: "code",
         authority: "https://login.microsoftonline.com/common/",
         redirectUri: "http://localhost:4200",
         postLogoutRedirectUri: "http://localhost:4200",

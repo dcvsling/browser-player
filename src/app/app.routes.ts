@@ -1,13 +1,8 @@
 import { Routes } from '@angular/router';
 import { SettingsComponent, NotFound, ListComponent, PlayerComponent } from './ui';
-import { MsalGuard, MsalRedirectComponent } from '@azure/msal-angular';
-import { MatSidenavModule } from '@angular/material/sidenav';
+import { SignIn } from '../auth';
 
 export const routes: Routes = [
-  {
-    path: 'auth',
-    component: MsalRedirectComponent
-  },
   {
     path: 'list',
     component: ListComponent,
@@ -17,12 +12,12 @@ export const routes: Routes = [
   {
     path: 'player',
     component: PlayerComponent,
-    canActivate: [MsalGuard]
+    //canActivate: [MsalGuard]
   },
   {
     path: 'settings',
     component: SettingsComponent,
-    canActivate: [MsalGuard]
+    // canActivate: [MsalGuard]
   },
   {
     path: '**',

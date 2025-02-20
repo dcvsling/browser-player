@@ -1,3 +1,4 @@
+import { provideRouter, provideRoutes, ROUTES, Routes } from '@angular/router';
 import { CommonModule } from "@angular/common";
 import { HTTP_INTERCEPTORS, HttpClientModule, provideHttpClient, withFetch, withInterceptorsFromDi } from "@angular/common/http";
 import { NgModule, makeEnvironmentProviders } from "@angular/core";
@@ -5,6 +6,11 @@ import { MSAL_GUARD_CONFIG, MSAL_INSTANCE, MSAL_INTERCEPTOR_CONFIG, MsalBroadcas
 import { InteractionType, LogLevel, PublicClientApplication } from "@azure/msal-browser";
 import { DriveClient, MSGraphClient } from "../graph";
 import { MsalAuthentication } from "./auth";
+import { AuthHttpInterceptor } from "./interceptor";
+import { GetAccessTokenOptions } from "./options";
+import { urlencoded } from "express";
+import { SignIn } from './signIn.component';
+
 
 
 @NgModule({
@@ -22,62 +28,36 @@ export class AuthModule {
 
 }
 
-export function provideMsalAuth() {
+export function provideAuth() {
   return makeEnvironmentProviders([
     provideHttpClient(withInterceptorsFromDi(), withFetch()),
     {
       provide: HTTP_INTERCEPTORS,
-      useClass: MsalInterceptor,
+      useClass: AuthHttpInterceptor,
       multi: true,
     },
     {
-      provide: MSAL_GUARD_CONFIG,
+      provide: GetAccessTokenOptions,
       useValue: {
-        interactionType: InteractionType.Redirect,
-        authRequest: {
-          scopes: ['user.read']
+        client_id: 'a39d10ff-3017-4e23-aef6-aeecf2688b52',
+        GetAcccessTokenParemeters: {
+          grant_type: "authorization_code",
+          scope: encodeURIComponent('https://graph.microsoft.com/mail.read'),
+          redirect_uri: encodeURIComponent("http://localhost:4200"),
+          code_verifier: "Qhc7E80PF3_cDAXKm9VrWvoUC9Q8An3gFcVIbf_aCCsE4zQUu52RRD0xabn2YnnKkWlk8NUJR-ayXmkn5sj3DDGrvF5Z-m4xV0NaMtwO4QDaTFX6aZQmFeeaoc3G2XRe"
         },
-        loginFailedRoute: '/login-failed'
-      }
-    },
-    {
-      provide: MSAL_INSTANCE,
-      useValue: new PublicClientApplication({
-        auth: {
-          clientId: "4c18105a-e398-4e42-b815-864ee1dca919",
-          authority: "https://login.microsoftonline.com/consumers",
-          redirectUri: "/auth",
-          postLogoutRedirectUri: "/",
+        GetCodeRequestParameters: {
+          response_type: 'code',
+          scope: encodeURIComponent('https://graph.microsoft.com/mail.read'),
+          redirect_uri: encodeURIComponent("http://localhost:4200"),
+          response_mode: 'query',
+          code_challenge: 'lDWlVpUqjMWhd2G3ZonHuH7ZvTvPSDdO2l4qaNcWXiM',
+          code_challenge_method: 'S256'
         },
-        cache: {
-            cacheLocation: "localStorage"
-        },
-        system: {
-          allowNativeBroker: false, // Disables WAM Broker
-          loggerOptions: {
-            loggerCallback: console.log,
-            logLevel: LogLevel.Warning,
-            piiLoggingEnabled: false
-          }
+        RefreshAccessTokenParameters: {
+          grant_type: 'refresh_token'
         }
-      })
-    },
-    {
-      provide: MSAL_INTERCEPTOR_CONFIG,
-      useValue: {
-        interactionType: InteractionType.Redirect, // MSAL Interceptor Configuration
-          protectedResourceMap: new Map([
-            [`https://graph.microsoft.com/v1.0/me`, ["user.read"]],
-            [`https://graph.microsoft.com/v1.0/drives/`, ["user.read", "files.read", "files.read.all"]], //B2D7A30C38920DE8/items/B2D7A30C38920DE8!134726/children?$expand=thumbnails
-            [`https://snz04pap002files.storage.live.com/`, ["user.read", "files.read"]],
-          ]),
-      }
-    },
-    MsalGuard,
-    DriveClient,
-    MSGraphClient,
-    MsalAuthentication,
-    MsalService,
-    MsalBroadcastService
+      } as GetAccessTokenOptions
+    }
   ]);
 }
