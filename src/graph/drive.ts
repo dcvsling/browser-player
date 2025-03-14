@@ -3,7 +3,7 @@ import { VideoMetadata, DriveResponse } from './video';
 import { ApiRequest } from './api';
 import { MSGraphClient } from './graph';
 import { Injectable } from '@angular/core';
-import { Observable, filter, map } from 'rxjs';
+import { BehaviorSubject, Observable, filter, map, shareReplay, tap } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
 
 export interface LazyLoad<T> {
@@ -16,36 +16,23 @@ export interface LazyLoad<T> {
 @Injectable({ providedIn: 'root' })
 export class DriveClient {
     constructor(private graph: MSGraphClient, private http: HttpClient) { }
-    load(): Observable<LazyLoad<VideoMetadata[]>> {
-      return  this.graph.get<DriveResponse<VideoMetadata>>(ApiRequest.files)
-        .pipe(
-          filter(tree => tree !== undefined && tree.value.length !== 0),
+    private subject: BehaviorSubject<VideoMetadata[]> = new BehaviorSubject<VideoMetadata[]>([]);
+    load(): Observable<VideoMetadata[]> {
+      const http = this.http;
+      const subject = this.subject;
+      this.graph.get<DriveResponse<VideoMetadata>>(ApiRequest.files)
+        .pipe(tap(x => processRespnonse(x!))
+        ).subscribe();;
+      return this.subject.pipe(shareReplay());
 
-          map(r => ({
-            nextUrl: r?.['@odata.nextLink'] ?? '',
-            data: (r?.value ?? []).filter(x => x.file.mimeType.indexOf('video/mp4') >= 0),
-            load: this.loadNext(r),
-            count: r?.['@odata.count']!
-          })),
-        )
-    }
-    private loadNext(res: DriveResponse<VideoMetadata> | undefined): () => Observable<LazyLoad<VideoMetadata[]>> {
-      return () => {
-        if(!res?.['@odata.nextLink']) return Observable.create({ data: [] });
-        return this.http.get<DriveResponse<VideoMetadata>>(res['@odata.nextLink'])
-          .pipe(
-            filter(tree => tree !== undefined && tree.value.length !== 0),
-            map(r => (
-                ({ ...{
-                  data: (r.value ?? []),
-                  count: r['@odata.count']
-                },
-                ...(r['@odata.nextLink'] ? {
-                  nextUrl: r['@odata.nextLink'],
-                  load: this.loadNext(r)
-                } : {}) }
-              )))
-            );
+      function processRespnonse(response: DriveResponse<VideoMetadata>): void {
+        subject.next(response.value);
+        if(response['@odata.nextLink'])
+          http.get<DriveResponse<VideoMetadata>>(response['@odata.nextLink'] as string)
+            .pipe(tap(processRespnonse))
+            .subscribe();
+        else
+          subject.complete();
       }
     }
     loadImage(url:string): Observable<ArrayBuffer> {

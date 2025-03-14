@@ -1,58 +1,24 @@
-import { CommonModule, NgTemplateOutlet } from '@angular/common';
-import { AfterContentInit, AfterViewInit, Component, computed, Directive, EmbeddedViewRef, inject, OnInit, Signal, TemplateRef, Type, viewChild, ViewContainerRef } from '@angular/core';
+import { Directive, inject, OnInit } from '@angular/core';
 import { AccessTokenProvider } from './token';
+import { HttpClient } from '@angular/common/http';
+import { Router } from '@angular/router';
+import { GetAccessTokenOptions } from './options';
+import { AUTH_TOKEN_EXPIRE, CODE_WITH_PKCE_EXPIRE } from './Constant';
+import { getAccessToken, RequestAccessToken } from './accessToken.auth';
+import { ensureCodeWithPKCE, RequestCodeWithPKCE } from './codeWithPKCE.auth';
 
-@Component({
-  selector: 'auth-button',
-  standalone: true,
-  imports: [CommonModule],
-  template: `
-  <ng-container *ngTemplateOutlet="isLogin ? logout : login"></ng-container>
-  <ng-template #login>
-    <button (click)="runLogin()">login</button>
-  </ng-template>
-  <ng-template #logout>
-    <button (click)="runLogout()">logout</button>
-  </ng-template>
-  `,
+@Directive({
+  standalone: true
 })
-export class AuthComponent {
-  private provider: AccessTokenProvider = inject(AccessTokenProvider);
+export class AuthDirective implements OnInit {
+  private http = inject(HttpClient);
+  private router = inject(Router);
+  private options = inject(GetAccessTokenOptions);
+  private provider = inject(AccessTokenProvider);
+  ngOnInit() {
+    ensureCodeWithPKCE(this.options);
+    getAccessToken(this.options, this.http)
+      .subscribe();
+  }
   get isLogin() { return this.provider.isLogin; }
-  runLogin(): void {
-    this.provider.getAccessToken();
-  }
-  runLogout(): void {
-    this.provider.reset();
-  }
-}
-
-export interface Context<T> {
-  $implicit: T;
-}
-
-@Directive({
-  selector: 'auth-login',
-  standalone: true,
-  host: {
-    '(click)': 'onclick()'
-  }
-})
-export class Login {
-  private provider: AccessTokenProvider = inject(AccessTokenProvider);
-
-}
-
-@Directive({
-  selector: 'auth-logout',
-  standalone: true,
-  host: {
-    '(click)': 'onclick()'
-  }
-})
-export class Logout {
-  private provider: AccessTokenProvider = inject(AccessTokenProvider);
-  onclick(): void {
-    this.provider.reset();
-  }
 }

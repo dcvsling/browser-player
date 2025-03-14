@@ -5,6 +5,7 @@ type ShareOptions = GetCodeWithPKCERequest & GetAccessTokenRequest & RefreshAcce
 
 interface GetAccessTokenOptions {
   client_id: string,
+  scope: string[],
   GetCodeRequestParameters: Partial<GetCodeWithPKCERequest>;
   GetAcccessTokenParemeters: Partial<GetAccessTokenRequest>;
   RefreshAccessTokenParameters: Partial<RefreshAccessTokenRequest>;

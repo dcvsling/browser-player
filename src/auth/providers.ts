@@ -1,32 +1,9 @@
-import { provideRouter, provideRoutes, ROUTES, Routes } from '@angular/router';
-import { CommonModule } from "@angular/common";
-import { HTTP_INTERCEPTORS, HttpClientModule, provideHttpClient, withFetch, withInterceptorsFromDi } from "@angular/common/http";
-import { NgModule, makeEnvironmentProviders } from "@angular/core";
-import { MSAL_GUARD_CONFIG, MSAL_INSTANCE, MSAL_INTERCEPTOR_CONFIG, MsalBroadcastService, MsalGuard, MsalInterceptor, MsalModule, MsalService } from "@azure/msal-angular";
-import { InteractionType, LogLevel, PublicClientApplication } from "@azure/msal-browser";
-import { DriveClient, MSGraphClient } from "../graph";
-import { MsalAuthentication } from "./auth";
+import { HTTP_INTERCEPTORS, withFetch, provideHttpClient, withInterceptorsFromDi } from "@angular/common/http";
+import { makeEnvironmentProviders } from "@angular/core";
 import { AuthHttpInterceptor } from "./interceptor";
 import { GetAccessTokenOptions } from "./options";
-import { urlencoded } from "express";
-import { SignIn } from './signIn.component';
 
 
-
-@NgModule({
-  imports: [
-    CommonModule,
-    HttpClientModule,
-    MsalModule
-  ],
-  providers: [
-
-  ],
-  exports: [HttpClientModule, MsalModule]
-})
-export class AuthModule {
-
-}
 
 export function provideAuth() {
   return makeEnvironmentProviders([
@@ -40,18 +17,21 @@ export function provideAuth() {
       provide: GetAccessTokenOptions,
       useValue: {
         client_id: 'a39d10ff-3017-4e23-aef6-aeecf2688b52',
+        scope: [
+          "https://graph.microsoft.com/User.Read",
+          "https://graph.microsoft.com/Files.Read",
+          "https://graph.microsoft.com/Files.Read.All"
+        ],
         GetAcccessTokenParemeters: {
           grant_type: "authorization_code",
-          scope: encodeURIComponent('https://graph.microsoft.com/mail.read'),
-          redirect_uri: encodeURIComponent("http://localhost:4200"),
-          code_verifier: "Qhc7E80PF3_cDAXKm9VrWvoUC9Q8An3gFcVIbf_aCCsE4zQUu52RRD0xabn2YnnKkWlk8NUJR-ayXmkn5sj3DDGrvF5Z-m4xV0NaMtwO4QDaTFX6aZQmFeeaoc3G2XRe"
+          redirect_uri: encodeURIComponent("http://localhost:4200/auth"),
+          code_verifier: "HfdeySOBvTW4aAu3S0jRC4U-Njvhn0gaK733LJhB4Q-sXGrKP9RSNJg9FWX338WV0f28UpLQV-SROg2jXealgS4Qen53ViQjhi2T4MmULNtKYHRbRClJOzMbvheHl-uY"
         },
         GetCodeRequestParameters: {
           response_type: 'code',
-          scope: encodeURIComponent('https://graph.microsoft.com/mail.read'),
-          redirect_uri: encodeURIComponent("http://localhost:4200"),
+          redirect_uri: encodeURIComponent("http://localhost:4200/auth"),
           response_mode: 'query',
-          code_challenge: 'lDWlVpUqjMWhd2G3ZonHuH7ZvTvPSDdO2l4qaNcWXiM',
+          code_challenge: '778s-lN2H4vsQE45ckbqaTPVEfgcd-oY1RiGUwmOtVs',
           code_challenge_method: 'S256'
         },
         RefreshAccessTokenParameters: {

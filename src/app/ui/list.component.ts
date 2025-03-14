@@ -1,22 +1,19 @@
 
 import { MatToolbarModule } from '@angular/material/toolbar';
-import { AsyncPipe, NgIf, NgTemplateOutlet, NgOptimizedImage, NgFor, NgClass  } from "@angular/common";
-import { Component, ModelSignal, Signal, WritableSignal, computed, inject, model, signal, viewChild } from "@angular/core";
-import { VideoMetadata as metadata} from "../../graph";
-import { AuthModule } from "../../auth/providers";
+import { NgFor, NgClass  } from "@angular/common";
+import { Component, ModelSignal, Signal, WritableSignal, computed, effect, inject, model, signal, viewChild } from "@angular/core";
+import { VideoMetadata as metadata, ToViduoSource, VideoSource} from "../../graph";
 import { MatGridListModule } from '@angular/material/grid-list';
 import { MatListModule } from '@angular/material/list';
-import { of } from "rxjs";
-import { EndOfScrollDirective, ForOf, KeyBindingDirective } from "../../weidges";
+import { map, of, tap } from "rxjs";
 import { MatProgressBarModule } from '@angular/material/progress-bar'
 import { ItemMode, ListItemComponent } from "./listItem.component";
-import { VideoSource } from "../../graph";
-import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
+import { VideoDataSource } from "../services/video.datasource";
+import { MatPaginator, MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatSidenavModule } from '@angular/material/sidenav';
-import { PlayerComponent } from "./player.component";
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatIconModule } from "@angular/material/icon";
-import { VideoListAccessor } from '../services/list.local';
+import { ActivatedRoute } from '@angular/router';
 
 declare interface VideoMetadata extends metadata{
   selected?: boolean;
@@ -30,34 +27,33 @@ declare interface VideoMetadata extends metadata{
         <mat-button-toggle value="grid" (click)="mode.set('grid')"><mat-icon>grid_view</mat-icon></mat-button-toggle>
         <mat-button-toggle value="row" (click)="mode.set('row')"><mat-icon>list</mat-icon></mat-button-toggle>
       </mat-button-toggle-group>
-
+<!--
       <mat-paginator #paginat
         class="demo-paginator"
         (page)="handlePageEvent($event)"
         [length]="source.length"
-        [pageSize]="[8]"
+        [pageSize]="[this.pageSize()]"
         [showFirstLastButtons]="true"
         [hidePageSize]="false"
         [pageIndex]="0"
         aria-label="Select page">
-    </mat-paginator>
+    </mat-paginator> -->
   </mat-toolbar>
   <div [ngClass]="modeClass()" #item>
-    <list-item
-      #listItem
-      *ngFor="let video of current()"
-      [item]="video"
-      [ngClass]="itemClassMode(video)"
-      
-      (click)="itemclick(video)"
-      [mode]="mode()"
-       >
-    </list-item>
+    @for (video of current(); track video) {
+      <list-item
+        #listItem
+        [item]="video"
+        [ngClass]="itemClassMode(video)"
+        (click)="itemclick(video)"
+        [mode]="mode()">
+      </list-item>
+    }
   </div>
 
   `,
   standalone: true,
-  imports: [NgIf, NgFor, NgClass, MatToolbarModule, MatButtonToggleModule, MatIconModule, PlayerComponent, KeyBindingDirective, MatSidenavModule, EndOfScrollDirective, ListItemComponent, ForOf, NgOptimizedImage , AsyncPipe, AuthModule, MatGridListModule, MatListModule, NgTemplateOutlet, MatProgressBarModule, MatPaginatorModule],
+  imports: [MatListModule, NgClass, MatToolbarModule, MatButtonToggleModule, MatIconModule, MatSidenavModule, ListItemComponent, MatGridListModule, MatListModule, MatProgressBarModule, MatPaginatorModule],
   styles: [`
     mat-toolbar {
       width: 100%;
@@ -97,31 +93,31 @@ export class ListComponent {
   modeClass: Signal<string> = computed(() => (this.mode() === 'row' ? 'row' : 'grid') + ' hide-scroll');
   mode: WritableSignal<ItemMode> = signal('grid');
   opened: ModelSignal<boolean> = model(true);
-  current: WritableSignal<VideoMetadata[]> = signal([]);
-  list: VideoListAccessor = inject(VideoListAccessor);
+  current: WritableSignal<readonly VideoSource[]> = signal([]);
+  source: VideoDataSource = inject(VideoDataSource);
+  pageIndex: WritableSignal<number> = signal(0);
+  pageSize: WritableSignal<number> = signal(8);
+  paging: Signal<MatPaginator> = viewChild.required('paginat');
+  activatedRoute: ActivatedRoute = inject(ActivatedRoute);
 
-  constructor(public source: VideoSource) {
+  constructor() {
+    effect(() => this.source.connect({ viewChange: of({ start: this.pageIndex() * this.pageSize(), end: (this.pageIndex() + 1)* this.pageSize() }) })
+      .pipe(tap(data => this.current.set(data)))
+      .subscribe(), { allowSignalWrites: true });
   }
   ngOnInit() {
-    this.source.connect({ viewChange: of({ start: 0, end: 8 }) })
-      .subscribe(data => this.current.set([...data]));
+    this.activatedRoute.paramMap.pipe(
+      map(p => p.has('pageIndex') ? parseInt(p.get('pageIndex')!) : 0),
+      tap(this.pageIndex.set)
+    ).subscribe();
   }
-
   handlePageEvent(e: PageEvent) {
-    this.source.connect({ viewChange: of({ start: e.pageIndex * e.pageSize, end: e.pageIndex * e.pageSize + e.pageSize }) })
-      .subscribe(data => this.current.set([...data]));
+    this.pageIndex.set(e.pageIndex);
   }
-  itemclick(video: VideoMetadata) {
-    video.selected = !(video.selected ?? false);
-    this.addToList(video);
-  }
-  addToList(metadata: VideoMetadata) {
-    this.list.current.exist(metadata)
-      ? this.list.current.remove(metadata)
-      : this.list.current.append(metadata);
+  itemclick(video: VideoSource) {
 
   }
-  itemClassMode(video: VideoMetadata) {
-    return 'list-item ' + (video.selected ? 'active' : '');
+  itemClassMode(video: VideoSource) {
+    return 'list-item ' + (video ? 'active' : '');
   }
 }

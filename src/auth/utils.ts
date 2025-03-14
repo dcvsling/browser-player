@@ -1,4 +1,10 @@
 
+export function toFormData(data: { [key: string]: string }): FormData {
+  var result = new FormData();
+  Object.keys(data).forEach(key => result.append(key, data[key]));
+  return result;
+}
+
 export function toQueryParams(data: { [key: string]: string }): string {
   return '?' + Object.keys(data)
     .map(key => `${key}=${data[key]}`)

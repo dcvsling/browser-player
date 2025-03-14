@@ -1,10 +1,12 @@
 
 
-import { AfterViewChecked, ChangeDetectorRef, Component, Directive, ElementRef, EmbeddedViewRef, OnInit, Signal, TemplateRef, ViewContainerRef, WritableSignal, computed, contentChild, effect, inject, input, signal, untracked, viewChild } from "@angular/core";
-import { VideoMetadata } from "../../graph";
-import { VideoListAccessor } from "../services/list.local";
-import { NgFor, NgIf } from '@angular/common';
+import { ChangeDetectorRef, Component, ElementRef, EmbeddedViewRef, OnInit, Signal, WritableSignal, computed, effect, inject, signal, viewChild } from "@angular/core";
+import { VideoSource } from "../../graph";
+import { NgFor } from '@angular/common';
 import { MatSidenavModule } from "@angular/material/sidenav";
+import { LocalStorageRef } from "../services/list.local";
+import { VIDEO_LIST_CACHE } from "../services/video.datasource";
+import { transcode } from "../../ffmpeg";
 
 export interface Context<T> {
   $implicit: T;
@@ -15,16 +17,16 @@ export interface Context<T> {
 //   standalone: true
 // })
 // export class VideoDirective implements OnInit {
-//   template: TemplateRef<Context<VideoMetadata>> = inject(TemplateRef);
-//   src: Signal<VideoMetadata> = input.required();
-//   set metadata(data: VideoMetadata) {
+//   template: TemplateRef<Context<VideoSource>> = inject(TemplateRef);
+//   src: Signal<VideoSource> = input.required();
+//   set metadata(data: VideoSource) {
 //     const el = this.video();
 //     if(!el) return;
 //     if(el.played) el.pause();
 //     el.src = data["@microsoft.graph.downloadUrl"] ?? '';
 //   }
 //   video: Signal<HTMLVideoElement | undefined> = computed(() => this.view?.rootNodes[0]);
-//   private view?: EmbeddedViewRef<Context<VideoMetadata>>;
+//   private view?: EmbeddedViewRef<Context<VideoSource>>;
 //   ngOnInit() {
 //     this.view = this.template.createEmbeddedView({ $implicit: this.src() });
 //   }
@@ -34,13 +36,13 @@ export interface Context<T> {
 @Component({
   selector: 'web-player',
   standalone: true,
-  imports: [NgIf, NgFor, MatSidenavModule],
+  imports: [NgFor, MatSidenavModule],
   template: `
     <mat-drawer-container autosize>
       <mat-drawer mode="side" [opened]="opened()" (openedChange)="opened.set($event)" >
         <ul>
-          <li *ngFor="let video of accessor.current" (click)="itemClick(video)">
-            <span>{{ video.name }}</span>
+          <li *ngFor="let video of list" (click)="itemClick(video)">
+            <span>{{ video.title }}</span>
           </li>
         </ul>
       </mat-drawer>
@@ -65,30 +67,28 @@ export interface Context<T> {
   `]
 })
 export class PlayerComponent implements OnInit  {
-  cdf: ChangeDetectorRef = inject(ChangeDetectorRef); 
   opened: WritableSignal<boolean> = signal(true);
-  accessor: VideoListAccessor = inject(VideoListAccessor);
   index: WritableSignal<number> = signal(0);
-  current: WritableSignal<VideoMetadata | undefined> = signal(undefined);
-  player: Signal<ElementRef<HTMLVideoElement>> = viewChild.required('player');
-  // container: Signal<ViewContainerRef> = viewChild.required("content", { read: ViewContainerRef } );
-  viewMap: { [key: string]: EmbeddedViewRef<Context<VideoMetadata>> } = {};
-  constructor() {}
-
+  current: WritableSignal<VideoSource | undefined> = signal(undefined);
+  vplayer: Signal<ElementRef<HTMLVideoElement>> = viewChild.required('player');
+  player: Signal<HTMLVideoElement> = computed(() => this.vplayer().nativeElement);
+  list: LocalStorageRef<VideoSource> = new LocalStorageRef<VideoSource>(VIDEO_LIST_CACHE);
+  viewMap: { [key: string]: EmbeddedViewRef<Context<VideoSource>> } = {};
+  constructor() {
+    effect(() => this.player().src = this.current()!.src, { allowSignalWrites: true });
+  }
   ngOnInit(): void {
   }
   onEnded() {
-    this.itemClick(this.accessor.current.next());
+    this.itemClick(this.list[(this.list.indexOf(this.current()!) + 1) % this.list.length]);
   }
 
-  itemClick(video: VideoMetadata) {
-    if(!this.player()) 
+  itemClick(video: VideoSource) {
+    if(!this.player())
       return;
-    this.player().nativeElement.src = video["@microsoft.graph.downloadUrl"];
+    this.current.set(video);
   }
   toggleDrawer() {
     this.opened.update(x => !x);
   }
-
-
 }

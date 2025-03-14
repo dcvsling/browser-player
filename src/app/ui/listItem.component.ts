@@ -1,34 +1,33 @@
 import { Component, Input, InputSignal, input } from "@angular/core";
-import { VideoMetadata } from "../../graph";
+import { VideoSource } from "../../graph";
 import { NgIf, NgTemplateOutlet } from "@angular/common";
 import { MatToolbarModule } from "@angular/material/toolbar";
+import { ImageComponent } from "./image.component";
 export type ItemMode = 'grid' | 'row';
 @Component({
   selector: 'list-item',
   standalone: true,
-  imports: [NgIf, NgTemplateOutlet, MatToolbarModule],
+  imports: [NgIf, NgTemplateOutlet, MatToolbarModule, ImageComponent],
   template: `
-    <ng-container *ngTemplateOutlet="video().thumbnails.length === 0 ? noThumbnail : mode() === 'row' ? row : grid"></ng-container>
+    <ng-container *ngTemplateOutlet="!video().thumb ? noThumbnail : mode() === 'row' ? row : grid"></ng-container>
 
     <ng-template #grid>
-      <img
-        *ngIf="video().thumbnails.length !== 0 else noThumbnail"
-        [src]="video().thumbnails[0].large.url"
-        [alt]="video().name"
-        loading="lazy"
-        
-        />
+      <img-c
+        *ngIf="video().thumb.grid.url !== '' else noThumbnail"
+        [src]="video().thumb.grid.url"
+        [alt]="video().title"
+      ></img-c>
     </ng-template>
 
     <ng-template #row>
       <p>
-        <span><img [src]="video().thumbnails[0].small.url" loading="lazy" /></span>
-        <span>{{video().name}}</span>
-        <span style="float: right">{{normallizetTime(video().video.duration)}}</span>
+        <span><img-c [src]="video().thumb.row.url"></img-c></span>
+        <span>{{video().title}}</span>
+        <span style="float: right">{{normallizetTime(video().size)}}</span>
       </p>
     </ng-template>
     <ng-template #noThumbnail>
-      <p>{{video().name}}</p>
+      <p>{{video().title}}</p>
     </ng-template>
           `,
   styles: [`
@@ -54,6 +53,6 @@ export class ListItemComponent {
     return `${mm}:${ss}`;
   }
   mode: InputSignal<ItemMode> = input.required();
-  video: InputSignal<VideoMetadata> = input.required({ alias: 'item' });
+  video: InputSignal<VideoSource> = input.required({ alias: 'item' });
 
 }
