@@ -2,6 +2,8 @@ import { HTTP_INTERCEPTORS, withFetch, provideHttpClient, withInterceptorsFromDi
 import { makeEnvironmentProviders } from "@angular/core";
 import { AuthHttpInterceptor } from "./interceptor";
 import { GetAccessTokenOptions } from "./options";
+import { AuthClient } from "./auth.client";
+import { IAccessTokenProvider } from "./accessor";
 
 
 
@@ -38,6 +40,12 @@ export function provideAuth() {
           grant_type: 'refresh_token'
         }
       } as GetAccessTokenOptions
+    },
+    AuthClient,
+    {
+      provide: IAccessTokenProvider,
+      useFactory: (client: AuthClient) => client.store,
+      deps: [AuthClient]
     }
   ]);
 }

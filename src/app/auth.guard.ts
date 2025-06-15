@@ -1,14 +1,36 @@
 import { inject, Injectable } from '@angular/core';
-import { AccessTokenProvider } from '../auth/token';
 import { ActivatedRouteSnapshot, CanActivate, CanMatch, GuardResult, MaybeAsync, Route, RouterStateSnapshot, UrlSegment } from "@angular/router";
+import { AuthClient } from '../auth/auth.client';
+import { IAccessTokenProvider, REDIRECT_TO_RESTORE_STATE, STATE } from '../auth';
 
 @Injectable({ providedIn: 'root' })
 export class AuthGuard implements CanMatch, CanActivate {
-  private provider = inject(AccessTokenProvider);
+  private client = inject(IAccessTokenProvider);
   canMatch(_: Route, __: UrlSegment[]): MaybeAsync<GuardResult> {
-    return this.provider.isLogin;
+    return this.tryAuth();
   }
   canActivate(_: ActivatedRouteSnapshot, __: RouterStateSnapshot): MaybeAsync<GuardResult> {
-    return this.provider.isLogin;
+    return this.tryAuth();
+  }
+  private async tryAuth(): Promise<boolean> {
+    const token = await this.client.getAccessToken();
+    return this.client.isAuth;
+  }
+}
+
+
+@Injectable({ providedIn: 'root' })
+export class PKCECallbackGuard implements CanMatch, CanActivate {
+  canMatch(_: Route, __: UrlSegment[]): MaybeAsync<GuardResult> {
+    return this.hasSessionData();
+  }
+  canActivate(_: ActivatedRouteSnapshot, __: RouterStateSnapshot): MaybeAsync<GuardResult> {
+    return this.hasSessionData();
+  }
+  private hasSessionData(): boolean {
+    const state = sessionStorage.getItem(STATE);
+    return !!state
+      && !!sessionStorage.getItem(REDIRECT_TO_RESTORE_STATE)
+      && location.search.startsWith('?code=');
   }
 }

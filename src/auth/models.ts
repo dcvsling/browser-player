@@ -38,3 +38,4 @@ export interface RefreshAccessTokenRequest {
   refresh_token: string
   grant_type: 'refresh_token'
 }
+

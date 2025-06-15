@@ -30,7 +30,8 @@
               "src/styles.css"
             ],
             "scripts": [
-            ]
+            ],
+            "webWorkerTsConfig": "tsconfig.worker.json"
           },
           "configurations": {
             "production": {
@@ -59,11 +60,14 @@
         "serve": {
           "builder": "@angular-devkit/build-angular:dev-server",
           "configurations": {
+
             "production": {
-              "buildTarget": "browser-player:build:production"
+              "buildTarget": "browser-player:build:production",
+              "hmr": false
             },
             "development": {
-              "buildTarget": "browser-player:build:development"
+              "buildTarget": "browser-player:build:development",
+              "hmr": false
             }
           },
           "defaultConfiguration": "development"

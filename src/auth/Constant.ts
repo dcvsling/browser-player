@@ -8,3 +8,4 @@ export const AUTH_TOKEN: string = "auth_token";
 export const AUTH_TOKEN_EXPIRE: string = 'auth_token_expire';
 export const REFRESH_TOKEN_EXPIRE = 'fresh_token_expire';
 export const AUTH_TOKEN_EXPIRE_TIME: number = 24*60*60*1000;
+export const REDIRECT_TO_RESTORE_STATE = "redirect_to_restore_state"

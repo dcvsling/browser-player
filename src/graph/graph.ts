@@ -11,7 +11,20 @@ export class MSGraphClient {
     get<T>(url: string): Observable<T | undefined>;
     get<T>(request: ApiRequest): Observable<T | undefined>;
     get<T>(request: ApiRequest | string): Observable<T | undefined> {
-      return this.client.get<T>(typeof request === 'string' ? request : request.endpoint);
+      return this.client.get<T>(this.createUrl(request));
+    }
+
+    private createUrl(request: ApiRequest | string): string {
+      if(typeof request === 'string')
+        return request;
+      if(!request.parameters)
+         return request.endpoint;
+
+      const select = `$select=${request.parameters.$select?.join(',')}`;
+      const expend = `$expand=${request.parameters.$expand}`;
+      const top = `$top=${request.parameters.$top}`;
+
+      return `${request.endpoint}?${ [select, expend, top].join('&') }`;
     }
 
     getStream(url: string): Observable<ArrayBuffer> {

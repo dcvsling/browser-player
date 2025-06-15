@@ -1,3 +1,4 @@
+import { Injectable } from "@angular/core";
 
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -14,17 +15,21 @@ type JSONData<T> =
   never;
 
 export class LocalStorageRef<T extends JSONData<any>> extends Array<T> implements Iterable<T> {
-
   [n: number]: T;
   constructor(public name: string){
     super();
-    const data: T[] = JSON.parse(localStorage.getItem(this.name) ?? '[]');
-    data.forEach((t, i) => this[i] = t);
-    window.addEventListener('beforeunload', () => {
-      if(this.length > 0)
-        window.localStorage.setItem(this.name, JSON.stringify([...this]));
-      else
-        window.localStorage.removeItem(this.name);
-    });
+  }
+  has(value: T): boolean {
+    return this.indexOf(value) >= 0;
+  }
+  add(value: T): void {
+    if(this.has(value))
+      return;
+    this.push(value);
+  }
+  remove(value: T): void {
+    let index;
+    while((index = this.indexOf(value)) >= 0)
+      this.splice(index, 1);
   }
 }
