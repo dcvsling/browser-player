@@ -4,7 +4,7 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
-    "build": "ng build --configuration production --prerender --verbose --progress",
+    "build": "ng build --configuration production --verbose --progress && mv dist/browser-player/browser/index.csr.html dist/browser-player/browser/index.html",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "serve:ssr:browser-player": "node dist/browser-player/server/server.mjs"
