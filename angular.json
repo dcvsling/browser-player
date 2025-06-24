@@ -29,9 +29,15 @@
               "src/custom-theme.scss",
               "src/styles.css"
             ],
-            "scripts": [
-            ],
-            "webWorkerTsConfig": "tsconfig.worker.json"
+            "scripts": [],
+            "webWorkerTsConfig": "tsconfig.worker.json",
+            "server": "src/main.server.ts",
+            "prerender": {
+              "routesFile": "prerender-routes.txt"
+            },
+            "ssr": {
+              "entry": "src/server.ts"
+            }
           },
           "configurations": {
             "production": {

@@ -8,6 +8,7 @@ import { provideAuth } from '../auth';
 import { IMAGE_CONFIG } from '@angular/common';
 import { AuthGuard, PKCECallbackGuard } from './auth.guard';
 import { IMAGE_RESIZE_WORKER } from './app.component';
+import { provideClientHydration, withEventReplay, withHttpTransferCacheOptions } from '@angular/platform-browser';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -20,7 +21,13 @@ export const appConfig: ApplicationConfig = {
     },
     {
       provide: IMAGE_RESIZE_WORKER,
-      useValue: new Worker(new URL('../workers/image-resize.worker', import.meta.url))
+      useFactory: () => {
+        if (typeof Worker !== 'undefined') {
+          return new Worker(new URL('../workers/image-resize.worker', import.meta.url));
+        }
+        // Dummy worker for SSR/prerender to avoid errors when Worker is undefined
+        return {} as Worker;
+      }
     },
     PKCECallbackGuard,
     AuthGuard,
@@ -32,6 +39,12 @@ export const appConfig: ApplicationConfig = {
       //   scrollPositionRestoration: 'enabled'
       ),
     provideAnimationsAsync(),
-    provideAuth()
+    provideAuth(), 
+    provideClientHydration(
+       withHttpTransferCacheOptions({
+        includePostRequests: true,
+      }),
+      withEventReplay()
+    )
   ]
 };
