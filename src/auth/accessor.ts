@@ -19,7 +19,7 @@ interface IAccessTokenProvider {
 })
 export class AuthTokerStore implements IAccessTokenProvider {
   constructor(private client: AuthClient, private worker: Worker) {
-    whenDev(() => (window as any)['AuthTokenStore'] = this);
+    whenDev(() => (globalThis as any).AuthTokenStore = this);
   }
   get isAuth(): boolean {
     return !!this._token;

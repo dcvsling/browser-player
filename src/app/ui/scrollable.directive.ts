@@ -1,5 +1,5 @@
-import { NgFor, NgForOf, ViewportScroller } from "@angular/common";
-import { Directive, OnInit, TemplateRef, inject, ChangeDetectorRef, InputSignal, input, WritableSignal, signal, effect, ViewContainerRef, OnDestroy, EmbeddedViewRef, ElementRef, InjectionToken, Signal, NgIterable } from "@angular/core";
+import { NgFor, NgForOf, ViewportScroller, isPlatformBrowser } from "@angular/common";
+import { Directive, OnInit, TemplateRef, inject, ChangeDetectorRef, InputSignal, input, WritableSignal, signal, effect, ViewContainerRef, OnDestroy, EmbeddedViewRef, ElementRef, InjectionToken, Signal, NgIterable, PLATFORM_ID } from "@angular/core";
 import { ActivatedRoute } from "@angular/router";
 import { Router } from "@angular/router";
 import { filter, BehaviorSubject, Subscription, max } from "rxjs";
@@ -50,6 +50,7 @@ export class Scrollable<T, U extends readonly T[] = readonly T[]> implements OnI
   private wheelHandler = this.onWheel.bind(this);
   private resizeHandler = this.onResize.bind(this);
   private keydownHandler = this.onKeyDown.bind(this);
+  private platformId = inject(PLATFORM_ID);
   private focusedIndex: number = 0;
   constructor() {
     effect(() => {
@@ -101,9 +102,11 @@ export class Scrollable<T, U extends readonly T[] = readonly T[]> implements OnI
 
   ngOnDestroy(): void {
     const wrapper = this.el.nativeElement.parentElement!;
-    wrapper.removeEventListener('wheel', this.wheelHandler);
-    window.removeEventListener('resize', this.resizeHandler);
-    wrapper.removeEventListener('keydown', this.keydownHandler);
+    if (isPlatformBrowser(this.platformId)) {
+      wrapper.removeEventListener('wheel', this.wheelHandler);
+      window.removeEventListener('resize', this.resizeHandler);
+      wrapper.removeEventListener('keydown', this.keydownHandler);
+    }
     for (let [, v] of this.views) {
       v.destroy();
     }
@@ -111,11 +114,13 @@ export class Scrollable<T, U extends readonly T[] = readonly T[]> implements OnI
   }
   ngOnInit(): void {
     this.calculateGrid();
-    window.addEventListener('resize', this.resizeHandler);
     const wrapper = this.el.nativeElement.parentElement!;
-    wrapper.tabIndex = 0;
-    wrapper.addEventListener('wheel', this.wheelHandler);
-    wrapper.addEventListener('keydown', this.keydownHandler);
+    if (isPlatformBrowser(this.platformId)) {
+      window.addEventListener('resize', this.resizeHandler);
+      wrapper.tabIndex = 0;
+      wrapper.addEventListener('wheel', this.wheelHandler);
+      wrapper.addEventListener('keydown', this.keydownHandler);
+    }
     this.subscription.add(
       this.source()
         .connect({ viewChange: this.range.pipe(filter(x => x !== undefined)) })

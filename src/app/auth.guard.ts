@@ -1,4 +1,5 @@
-import { inject, Injectable } from '@angular/core';
+import { inject, Injectable, PLATFORM_ID } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { ActivatedRouteSnapshot, CanActivate, CanMatch, GuardResult, MaybeAsync, Route, RouterStateSnapshot, UrlSegment } from "@angular/router";
 import { AuthClient } from '../auth/auth.client';
 import { IAccessTokenProvider, REDIRECT_TO_RESTORE_STATE, STATE } from '../auth';
@@ -21,6 +22,7 @@ export class AuthGuard implements CanMatch, CanActivate {
 
 @Injectable({ providedIn: 'root' })
 export class PKCECallbackGuard implements CanMatch, CanActivate {
+  private platformId = inject(PLATFORM_ID);
   canMatch(_: Route, __: UrlSegment[]): MaybeAsync<GuardResult> {
     return this.hasSessionData();
   }
@@ -28,6 +30,9 @@ export class PKCECallbackGuard implements CanMatch, CanActivate {
     return this.hasSessionData();
   }
   private hasSessionData(): boolean {
+    if (!isPlatformBrowser(this.platformId)) {
+      return false;
+    }
     const state = sessionStorage.getItem(STATE);
     return !!state
       && !!sessionStorage.getItem(REDIRECT_TO_RESTORE_STATE)
