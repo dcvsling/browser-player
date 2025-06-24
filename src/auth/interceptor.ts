@@ -8,12 +8,10 @@ import { IAccessTokenProvider } from "./accessor";
 export class AuthHttpInterceptor implements HttpInterceptor {
   private _token: IAccessTokenProvider = inject(IAccessTokenProvider);
   intercept(req: HttpRequest<any>, next: HttpHandler): Observable<HttpEvent<any>> {
-    return retry(httpStatusHandle, 3)(
+    return appendAccessTokenWhenNotIgonres(this._token)(
       req,
-      req => appendAccessTokenWhenNotIgonres(this._token)(
-        req,
-        next.handle)
-    );
+      next.handle)
+    ;
   }
 }
 

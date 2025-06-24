@@ -12,7 +12,7 @@ export interface ImageCache {
   id: string;
   width: number;
   height: number;
-  content: Blob
+  content: string
 }
 
 const db: DBManager = new DBManager({
@@ -25,51 +25,67 @@ const db: DBManager = new DBManager({
 
 let accessToken: string = '';
 
-addEventListener('message', async ({ data }) => {
-  if(typeof data === 'string') {
+const pendingRequests: Map<string, Promise<ImageCache>> = new Map();
+
+addEventListener('message', ({ data }) => {
+  if (typeof data === 'string') {
     accessToken = data;
     return;
   }
-  const { source, canvas } = data;
-  if(!source || !canvas) return;
+  const { source } = data as ResizeRequest;
+  if (!source) {
+    return;
+  }
   const id = source.id;
-  db.get<ImageCache>('images', id).then(async cache => {
-    let _cache: ImageCache = cache;
-    if(!_cache) {
-      _cache = await downloadIamge(source);
-      db.set('images', _cache);
-    }
-    drawImage(canvas, _cache);
-  })
+  let request = pendingRequests.get(id);
+  if (!request) {
+    request = (async () => {
+      const cache = await db.get<ImageCache>('images', id);
+      if (cache) {
+        return cache;
+      }
+      const newCache = await downloadIamge(source);
+      await db.set('images', newCache);
+      return newCache;
+    })();
+    pendingRequests.set(id, request);
+    request.finally(() => pendingRequests.delete(id));
+  }
+  request.then((cache) => postMessage({ id: cache.id, content: cache.content }));
 });
-
-async function drawImage(canvas: OffscreenCanvas, { content }: ImageCache) {
+async function blobToBase64(blob: Blob): Promise<string> {
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const binary = bytes.reduce((data, byte) => data + String.fromCharCode(byte), '');
+  return `data:${blob.type};base64,${btoa(binary)}`;
+}
+async function drawImage(content: Blob) {
+  const canvas = new OffscreenCanvas(320, 240);
   const bitmap = await createImageBitmap(content);
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
+  
   const ctx = canvas.getContext('2d');
   if(!ctx) return;
   ctx.drawImage(bitmap, 0, 0);
   bitmap.close();
+  return blobToBase64(await canvas.convertToBlob());
 }
 async function downloadIamge(src: VideoSource): Promise<ImageCache> {
   if(!accessToken || accessToken.length === 0) throw Error('no accesstoken');
   const response = await fetch(getThumbnailsUrl(src), { method: 'GET', headers: { 'Authorization': 'bearer ' + accessToken }})
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch image: ${response.statusText}`);
+    throw new Error(await response.json());
   }
   const body: DriveResponse<ThumbnailMap> = await response.json();
-  if(body.value.length < 1) throw Error('nagetive image length');
+  const thumnb = body.value[0];
+  
   return await fetch(body.value[0].large.url)
     .then(async res => {
       if (!res.ok) {
-        throw new Error(`Failed to fetch image: ${response.statusText}`);
+        throw new Error(await res.text());
       }
-      const thumnb = body.value[0];
-
       return {
-        content: await showViaImageBitmap(await res.bytes()),
+        content: await blobToBase64(await showViaImageBitmap(await res.bytes())),
         width: thumnb.large.width,
         height: thumnb.large.height,
         id: src.id
@@ -81,23 +97,37 @@ async function downloadIamge(src: VideoSource): Promise<ImageCache> {
     // 2. 用 createImageBitmap 解码成 ImageBitmap（不会分配 Blob URL）
     const bitmap = await createImageBitmap(blob);
     // 3. 建一个临时 Canvas，把 ImageBitmap 画上去
-    const off = new OffscreenCanvas(bitmap.width, bitmap.height);
-    const ctx = off.getContext('2d')!;
+    
 
-    ctx.drawImage(bitmap, 0, 0);
-    // 4. 从 Canvas 导出为 Blob（也可以直接 toDataURL）
-    return await off.convertToBlob({ type: 'image/png' });
+    return resizeImage(bitmap, 320, 240);
   }
 }
 
-// async function resizeImage(blob: Blob, width: number, height: number): Promise<Blob> {
-//   const img = await createImageBitmap(blob);
-//   const canvas = new OffscreenCanvas(width, height);
-//   const ctx = canvas.getContext('2d');
-//   if(!ctx) {
-//     throw new Error('Failed to get canvas context');
-//   }
+async function resizeImage(blob: ImageBitmap, width: number, height: number): Promise<Blob> {
+  const img = await createImageBitmap(blob);
+  const canvas = new OffscreenCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+  if(!ctx) {
+    throw new Error('Failed to get canvas context');
+  }
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  
+  
+  const originalWidth = img.width;
+  const originalHeight = img.height;
+  // 等比縮放的比例，取較小邊
+  const scale = Math.min(width / originalWidth, height / originalHeight);
+  const scaledWidth = originalWidth * scale;
+  const scaledHeight = originalHeight * scale;
 
-//   ctx.drawImage(img, 0, 0, width, height);
-//   return await canvas.convertToBlob();
-// }
+  // 對齊中心：讓圖片置中畫布
+  const offsetX = (width - scaledWidth) / 2;
+  const offsetY = (height - scaledHeight) / 2;
+
+  ctx.clearRect(0, 0, width, height);
+  ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
+
+  ctx.drawImage(img, 0, 0, width, height);
+  return await canvas.convertToBlob({ type: 'image/png' });
+}

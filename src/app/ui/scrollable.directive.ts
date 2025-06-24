@@ -1,9 +1,10 @@
-import { ViewportScroller } from "@angular/common";
-import { Directive, OnInit, TemplateRef, inject, ChangeDetectorRef, InputSignal, input, WritableSignal, signal, effect, ViewContainerRef, OnDestroy, EmbeddedViewRef, ElementRef, Provider, forwardRef, InjectionToken, Signal, viewChild, contentChild, computed } from "@angular/core";
+import { NgFor, NgForOf, ViewportScroller } from "@angular/common";
+import { Directive, OnInit, TemplateRef, inject, ChangeDetectorRef, InputSignal, input, WritableSignal, signal, effect, ViewContainerRef, OnDestroy, EmbeddedViewRef, ElementRef, InjectionToken, Signal, NgIterable } from "@angular/core";
 import { ActivatedRoute } from "@angular/router";
 import { Router } from "@angular/router";
-import { filter, BehaviorSubject, Subscription } from "rxjs";
-import { DataSource, ListRange } from "@angular/cdk/collections";
+import { filter, BehaviorSubject, Subscription, max } from "rxjs";
+import { ListRange } from "@angular/cdk/collections";
+import { DataSource } from "../../data";
 
 
 export interface ScrollContext<T, R extends readonly T[] = readonly T[]> {
@@ -16,7 +17,7 @@ export interface ScrollContext<T, R extends readonly T[] = readonly T[]> {
 
 
 @Directive({
-  selector: '[scrollItem]',
+  selector: '[scrollTemplate]',
   standalone: true
 })
 export class ScrollItem<T, U extends readonly T[] = readonly T[]> {
@@ -27,99 +28,123 @@ export class ScrollItem<T, U extends readonly T[] = readonly T[]> {
 }
 
 @Directive({
-  selector: '[scrollable]',
+  selector: '[scrollable][scrollableOf]',
   standalone: true
 })
 export class Scrollable<T, U extends readonly T[] = readonly T[]> implements OnInit, OnDestroy {
-  views: EmbeddedViewRef<ScrollContext<T, U>>[] = [];
-  //template: ScrollItem<T, U> = iinject(SCROLL_ITEM_TOKEN, { self: true });
-  template: Signal<ScrollItem<T, U>> = contentChild.required(ScrollItem);
+  views: [{ row: number, column: number }, EmbeddedViewRef<ScrollContext<T, U>>][] = [];
+  template: TemplateRef<ScrollContext<T>> = inject(TemplateRef);
   router: Router = inject(Router);
   route: ActivatedRoute = inject(ActivatedRoute);
-  vps: ViewportScroller = inject(ViewportScroller);
-  cdf: ChangeDetectorRef = inject(ChangeDetectorRef);
   lastRange: WritableSignal<ListRange> = signal({ start: 0, end: 0 });
-  source: InputSignal<DataSource<T>> = input.required({ alias: "scrollable" });
+  source: InputSignal<DataSource<T>> = input.required({ alias: "scrollableOf" });
   range: BehaviorSubject<ListRange> = new BehaviorSubject<ListRange>(this.lastRange());
   currentList: WritableSignal<readonly T[]> = signal([]);
   vcf: ViewContainerRef = inject(ViewContainerRef);
   el: ElementRef<HTMLElement> = inject(ElementRef);
   isloading: boolean = false;
-  countPerLoad: number = 20;
+  countPerLoad: WritableSignal<number> = signal(40);
+  countPerShift: WritableSignal<number> = signal(0);
   private offsetY: number = 0;
   private subscription: Subscription = new Subscription();
+  private wheelHandler = this.onWheel.bind(this);
+  private resizeHandler = this.onResize.bind(this);
+  private keydownHandler = this.onKeyDown.bind(this);
+  private focusedIndex: number = 0;
   constructor() {
     effect(() => {
       const range = this.lastRange();
       if(range)
       this.range.next(range);
     });
+    effect(this.checkDiffAndSet.bind(this));
+
   }
+
+  checkDiffAndSet() {
+    let index = 0;
+    let maxColumn = 0;
+    let column = 0;
+    let row = 0;
+    for(let data of this.currentList()) {
+      if(index < this.views.length) {
+        const ctx = this.views[index][1].context;
+        if(ctx.$implicit !== data) {
+          ctx.$implicit = data;
+          this.views[index][1].markForCheck()
+        } 
+      } else {
+        const view = this.vcf.createEmbeddedView<ScrollContext<T, U>>(this.template, { $implicit: data });
+        const root = view.rootNodes[0] as HTMLElement;
+        root.tabIndex = -1;
+        const { top, height } = root.getBoundingClientRect();
+        const currentRow = Math.floor(top / height);
+        if(currentRow === row) {
+          column = 0;
+          row = currentRow + 1;
+        } else {
+          column++;
+        }
+        this.views.push([{ row, column }, view]);
+        
+      }
+      index++;
+      maxColumn = Math.max(maxColumn, column);
+    }
+    while(this.views.length > index) {
+      const view = this.views.pop()![1];
+      view.destroy();
+    }
+    this.countPerShift.set(Math.max(this.countPerShift(), maxColumn + 1));
+    this.isloading = false;
+  }
+
   ngOnDestroy(): void {
-    for(let v of this.views) {
+    const wrapper = this.el.nativeElement.parentElement!;
+    wrapper.removeEventListener('wheel', this.wheelHandler);
+    window.removeEventListener('resize', this.resizeHandler);
+    wrapper.removeEventListener('keydown', this.keydownHandler);
+    for (let [, v] of this.views) {
       v.destroy();
     }
-    // document.removeEventListener('wheel', this.onWheel.bind(this));
     this.subscription?.unsubscribe();
   }
   ngOnInit(): void {
-    document.addEventListener('wheel', this.onWheel.bind(this));
-    this.subscription.add(this.source().connect({ viewChange: this.range.pipe(filter(x => x !== undefined)) })
-      .subscribe(data => {
-        for(let val of data) {
-          const view = this.vcf.createEmbeddedView<ScrollContext<T, U>>(this.template().template, { $implicit: val });
-          this.el.nativeElement.appendChild(view.rootNodes[0]);
-          this.views.push(view);
-        }
-        this.isloading = false;
-      }));
-    this.lastRange.update(old => ({ start: old.end, end: old.end + this.countPerLoad }));
+    this.calculateGrid();
+    window.addEventListener('resize', this.resizeHandler);
+    const wrapper = this.el.nativeElement.parentElement!;
+    wrapper.tabIndex = 0;
+    wrapper.addEventListener('wheel', this.wheelHandler);
+    wrapper.addEventListener('keydown', this.keydownHandler);
+    this.subscription.add(
+      this.source()
+        .connect({ viewChange: this.range.pipe(filter(x => x !== undefined)) })
+        .subscribe((data) => this.currentList.set(data))
+    );
+    this.lastRange.set({ start: 0, end: this.countPerLoad() });
+  }
+  onResize() {
+    this.calculateGrid();
+  }
+  private calculateGrid(): void {
+    const wrapper = this.el.nativeElement.parentElement!;
+    const { height, width } = wrapper.getBoundingClientRect();
+    const colLen = Math.max(1, Math.floor(width / 320));
+    const rowLen = Math.max(1, Math.floor(height / 240)) + 1;
+    this.countPerLoad.set(colLen * rowLen);
   }
 
   private onWheel(event: WheelEvent): void {
-    // event.preventDefault();
-  const listEl = this.el.nativeElement;
-  const wrapperEl = listEl.parentElement!;
-
-  // 1. 準備 DOM 與它們的 bounding rect
-  const wrapperRect = wrapperEl.getBoundingClientRect();
-  const itemEls: HTMLElement[] = this.views
-    .map(v => v.rootNodes.find(n => n.nodeType === Node.ELEMENT_NODE) as HTMLElement)
-    .filter(el => !!el);
-  if (!itemEls.length) return;
-
-  const firstRect  = itemEls[0].getBoundingClientRect();
-  const lastRect   = itemEls[itemEls.length - 1].getBoundingClientRect();
-
-  // 2. 計算「頭尾間距」：正值代表第一筆還沒頂到頂端、負值代表最後一筆還沒頂到底部
-  const topGap    = firstRect.top    - wrapperRect.top;
-  const bottomGap = lastRect.bottom  - wrapperRect.bottom;
-
-  // 3.
-
-  // 3. 預計的位移（offsetY 為負值時表示往上捲動內容）
-  let newOffset = this.offsetY - event.deltaY;
-
-  // 4. clamp：如果會捲過頭，就把 newOffset 修正到剛好貼齊
-  //    - 向上捲（deltaY < 0），如果 topGap - deltaY > 0，就 clamp 在 topGap
-  if (event.deltaY < 0 && topGap - event.deltaY > 0) {
-    newOffset = this.offsetY - topGap;
-  }
-  //    - 向下捲（deltaY > 0），如果 bottomGap - deltaY < 0，就 clamp 在 bottomGap
-  if (event.deltaY > 0 && bottomGap - event.deltaY < 0) {
-    newOffset = this.offsetY - bottomGap;
-  }
-
-  // 5. 更新 offsetY，並套用 transform
-  this.offsetY = newOffset;
-  listEl.style.transform = `translateY(${this.offsetY}px)`;
-
-  // 6. 觸底判定：last item 完全頂到底部時，觸發載入更多
-  if (bottomGap <= 0 && !this.isloading) {
-      this.lastRange.update(old => ({
-        start: old.end,
-        end:   old.end + this.countPerLoad
-      }));
+    const times = event.deltaY > 0 ? 1 : event.deltaY < 0 ? -1 : 0;
+    if (times) {
+      const load = this.countPerLoad();
+      const total = this.source().length;
+      const maxStart = Math.max(0, total - load);
+      const shift = times * this.countPerShift();
+      this.lastRange.update(old => {
+        const newStart = Math.min(maxStart, Math.max(0, old.start + shift));
+        return { start: newStart, end: newStart + load };
+      });
     }
   }
 
@@ -129,6 +154,77 @@ export class Scrollable<T, U extends readonly T[] = readonly T[]> implements OnI
   ): ctx is ScrollContext<T, U> {
     return true;
   }
+  
+  private onKeyDown(event: KeyboardEvent): void {
+    const key = event.key;
+    const load = this.countPerLoad();
+    const total = this.source().length;
+    const maxStart = Math.max(0, total - load);
+    const shift = this.countPerShift();
+    switch (key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        if (this.focusedIndex + shift < this.views.length) {
+          this.moveFocus(this.focusedIndex + shift);
+        } else if (this.lastRange().start < maxStart) {
+          const newStart = Math.min(maxStart, this.lastRange().start + shift);
+          this.lastRange.set({ start: newStart, end: newStart + load });
+          this.moveFocus(this.views.length - 1);
+        }
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        if (this.focusedIndex - shift >= 0) {
+          this.moveFocus(this.focusedIndex - shift);
+        } else if (this.lastRange().start > 0) {
+          const newStart = Math.max(0, this.lastRange().start - shift);
+          this.lastRange.set({ start: newStart, end: newStart + load });
+          this.moveFocus(0);
+        }
+        break;
+      case 'ArrowRight':
+        event.preventDefault();
+        if (this.focusedIndex + 1 < this.views.length) {
+          this.moveFocus(this.focusedIndex + 1);
+        } else if (this.lastRange().start < maxStart) {
+          const newStart = Math.min(maxStart, this.lastRange().start + shift);
+          this.lastRange.set({ start: newStart, end: newStart + load });
+          this.moveFocus(this.views.length - 1);
+        }
+        break;
+      case 'ArrowLeft':
+        event.preventDefault();
+        if (this.focusedIndex - 1 >= 0) {
+          this.moveFocus(this.focusedIndex - 1);
+        } else if (this.lastRange().start > 0) {
+          const newStart = Math.max(0, this.lastRange().start - shift);
+          this.lastRange.set({ start: newStart, end: newStart + load });
+          this.moveFocus(0);
+        }
+        break;
+      case ' ':
+      case 'Spacebar':
+        event.preventDefault();
+        if (this.focusedIndex >= 0 && this.focusedIndex < this.views.length) {
+          const el = this.views[this.focusedIndex][1].rootNodes[0] as HTMLElement;
+          el.click();
+        }
+        break;
+    }
+  }
+
+  private moveFocus(index: number): void {
+    const max = this.views.length - 1;
+    const i = Math.max(0, Math.min(max, index));
+    if (this.focusedIndex >= 0 && this.focusedIndex <= max) {
+      (this.views[this.focusedIndex][1].rootNodes[0] as HTMLElement).classList.remove('focused');
+    }
+    this.focusedIndex = i;
+    const el = this.views[i][1].rootNodes[0] as HTMLElement;
+    el.classList.add('focused');
+    el.focus({ preventScroll: true });
+    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
 }
 type Vector = { X: number, Y: number };
 namespace Vector {
@@ -136,50 +232,3 @@ namespace Vector {
 }
 export { Vector };
 
-
-
-export interface Scroll {
-  position: Signal<Vector>;
-  delta: Signal<Vector>;
-}
-
-@Directive({
-  selector: '[scrollable]',
-  standalone: true
-})
-export class VirtualScrollable implements OnInit, Scroll {
-  el: ElementRef<HTMLElement> = inject(ElementRef<HTMLElement>);
-  deltaY: WritableSignal<number> = signal(0);
-  constructor() {
-    effect(() => this.el.nativeElement.style.transform = `translateY(${this.deltaY()}px)`);
-  }
-  position: WritableSignal<Vector> = signal(Vector.Zero);
-  delta: WritableSignal<Vector> = signal(Vector.Zero);
-  size: InputSignal<Vector> = input.required();
-  range: Signal<Vector> = computed(() => {
-    const { X, Y } = this.size();
-    const { width, height } = this.el.nativeElement.getBoundingClientRect();
-    return { X: width / X, Y: height / Y };
-  })
-  ngOnInit(): void {
-    this.el.nativeElement.addEventListener('wheel', this.onWheel.bind(this));
-  }
-  private onWheel(event: WheelEvent) {
-    const delta = { X: event.deltaX, Y: event.deltaY };
-    const position = { X: event.x, Y: event.y };
-    const { height, width } = this.el.nativeElement.getBoundingClientRect();
-    const { X: rx, Y: ry } = this.range();
-    this.delta.update(({ X, Y }) => ({
-      X: Math.min(0, Math.max(event.deltaX/rx, width)),
-      Y: Math.min(0, Math.max(event.deltaY/ry, height))
-    }));
-    this.position.update(({ X, Y }) => ({
-      X: Math.min(0, Math.max((X + event.deltaX)/rx, width)),
-      Y: Math.min(0, Math.max((Y + event.deltaY)/ry, height))
-    }));
-    this.el.nativeElement.addEventListener('scrolling', )
-  }
-  onscrolling(): void {
-
-  }
-}

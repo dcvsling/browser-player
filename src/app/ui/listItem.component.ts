@@ -1,15 +1,15 @@
-import { Component, ElementRef, InputSignal, WritableSignal, inject, input, signal } from "@angular/core";
-import { VideoSource } from "../../graph";
+import { Component, ElementRef, InputSignal, WritableSignal, effect, inject, input, signal } from "@angular/core";
+import { DriveClient, VideoSource } from "../../graph";
 import { MatToolbarModule } from "@angular/material/toolbar";
-import { CanvasImageDirective } from "./image.directive";
+import { ImageDirective } from "./image.directive";
 
 
 @Component({
   selector: 'list-item',
   standalone: true,
-  imports: [MatToolbarModule, CanvasImageDirective],
+  imports: [MatToolbarModule, ImageDirective],
   template: `
-    <canvas class="img" [image]="source()"></canvas>
+    <img class="img" [src]="source()" [alt]="source().title"/>
     <span class="video-title">{{ source().title }}</span>
     <span class="video-duration">{{ normallizetTime(source().duration) }}</span>`,
   styles: [`
@@ -18,10 +18,12 @@ import { CanvasImageDirective } from "./image.directive";
       displdiay: block;
       background-color: #333;
       border-radius: 4px;
-      overflow: hidden;
+      overflow-y: hidden;
       text-align: center;
       padding: 2px 0px;
       transition: transform 0.2s ease;
+      width: 320px;
+      height: 240px;
       &:hover {
         transform: scale(1.02);
       }
@@ -49,7 +51,7 @@ import { CanvasImageDirective } from "./image.directive";
       }
       .img {
         width: 100%;
-        height: auto;
+        height: 100%;
         display: block;
       }
       .video-title {
@@ -73,10 +75,14 @@ import { CanvasImageDirective } from "./image.directive";
   `]
 })
 export class ListItemComponent {
+  constructor() {
+    effect(async () => this.imageUrl.set(await this.client.getThumbnail(this.source(), "large")));
+  }
+  
   source: InputSignal<VideoSource> = input.required({ alias: 'item' });
   el: ElementRef<HTMLDivElement> = inject(ElementRef);
-  imageUrl: WritableSignal<string> = signal('');
-
+  imageUrl: WritableSignal<string | undefined> = signal(undefined);
+  client: DriveClient = inject(DriveClient);
   normallizetTime(time: number): string {
     time = Math.floor(time);
     const ss = time % 60;

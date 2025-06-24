@@ -1,8 +1,7 @@
-import { ViewportScroller } from "@angular/common";
+import { CommonModule, ViewportScroller } from "@angular/common";
 import { ChangeDetectorRef, Component, Directive, effect, ElementRef, EmbeddedViewRef, EventEmitter, inject, Input, input, InputSignal, NgIterable, OnChanges, OnInit, output, OutputEmitterRef, signal, SimpleChanges, TemplateRef, ViewContainerRef, ViewRef, WritableSignal } from "@angular/core";
 import { ActivatedRoute, Router, Scroll } from "@angular/router";
 import { filter, lastValueFrom, map, mergeMap, Observable, tap } from "rxjs";
-import { Context } from "./playlist.component";
 import { DataSource } from "../../data/datasource";
 
 

@@ -1,18 +1,26 @@
-import { Component, Directive, ElementRef, inject, input, InputSignal, OnInit, Renderer2 } from "@angular/core";
+import { ChangeDetectorRef, Directive, effect, ElementRef, inject, input, InputSignal, OnInit } from "@angular/core";
 import { VideoSource } from "../../graph";
 import { IMAGE_RESIZE_WORKER } from "../app.component";
 
 @Directive({
-  selector: 'canvas[image]',
-  standalone: true,
-  
+  selector: 'img[src]',
+  standalone: true
 })
-export class CanvasImageDirective implements OnInit {
-  source: InputSignal<VideoSource> = input.required({ alias: 'image' });
+export class ImageDirective implements OnInit {
+  source: InputSignal<VideoSource> = input.required({ alias: 'src' });
+  alt: InputSignal<string> = input<string>('');
   worker: Worker = inject<Worker>(IMAGE_RESIZE_WORKER);
-  el: ElementRef<HTMLCanvasElement> = inject(ElementRef);
+  el: ElementRef<HTMLImageElement> = inject(ElementRef);
+  cdf: ChangeDetectorRef = inject(ChangeDetectorRef);
+  constructor() {
+    effect(() => this.worker.postMessage({ source: this.source() }));
+    effect(() => this.el.nativeElement.alt = this.alt());
+  }
   ngOnInit(): void {
-    const offscreen = this.el.nativeElement.transferControlToOffscreen();
-    this.worker.postMessage({ source: this.source(), canvas: offscreen }, [offscreen]);
+    this.worker.addEventListener('message', ({ data:{ id, content } }) => {
+      if(id !== this.source().id) return;
+      this.el.nativeElement.src = content;
+      this.cdf.markForCheck();
+    });
   }
 }

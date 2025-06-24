@@ -3,7 +3,7 @@ import { VideoMetadata, VideoSource, ToViduoSource, DriveResponse, getVideoSourc
 import { ApiRequest } from './api';
 import { MSGraphClient } from './graph';
 import { Injectable, NgIterable } from '@angular/core';
-import { BehaviorSubject, Observable, filter, map, shareReplay } from 'rxjs';
+import { BehaviorSubject, Observable, filter, lastValueFrom, map, shareReplay } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
 
 export interface LoadContext<T> {
@@ -15,6 +15,8 @@ export interface LoadContext<T> {
 export class DriveClient {
     constructor(private graph: MSGraphClient, private http: HttpClient) { }
     private subject: BehaviorSubject<LoadContext<VideoSource>> = new BehaviorSubject<LoadContext<VideoSource>>({ data: [], length: 0});
+    private thumbnailCache = new Map<string, string | undefined>();
+    private thumbnailPending = new Map<string, Promise<string | undefined>>();
     load(): Observable<LoadContext<VideoSource>> {
       return this.graph.get<DriveResponse<VideoMetadata>>(ApiRequest.files)
         .pipe(
@@ -43,15 +45,25 @@ export class DriveClient {
         );
     }
 
-    getThumbnail(source: VideoSource, size: 'small' | 'medium' | 'large' = 'medium'): Observable<string> {
-      return this.graph.get<ThumbnailMap>(getThumbnailsUrl(source, ))
-        .pipe(
-          map(response => response && response && isThumbnail(response[size]) ? response[size].url : undefined),
-          filter(x => x !== undefined),
-          shareReplay()
-        );
+    async getThumbnail(source: VideoSource, size: 'small' | 'medium' | 'large' = 'medium'): Promise<string | undefined> {
+      const key = `${source.id}-${size}`;
+      if (this.thumbnailCache.has(key)) {
+        return this.thumbnailCache.get(key);
+      }
+      let pending = this.thumbnailPending.get(key);
+      if (!pending) {
+        pending = lastValueFrom(this.graph.get<DriveResponse<ThumbnailMap>>(getThumbnailsUrl(source)))
+          .then((res) => res?.value?.[0]?.[size]?.url)
+          .catch(() => undefined)
+          .then((url) => {
+            this.thumbnailCache.set(key, url);
+            this.thumbnailPending.delete(key);
+            return url;
+          });
+        this.thumbnailPending.set(key, pending);
+      }
+      return pending;
     }
-
     loadImage(url:string): Observable<ArrayBuffer> {
       return this.graph.getStream(url);
     }
