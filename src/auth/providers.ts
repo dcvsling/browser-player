@@ -26,12 +26,12 @@ export function provideAuth() {
         ],
         GetAcccessTokenParemeters: {
           grant_type: "authorization_code",
-          redirect_uri: encodeURIComponent("http://localhost:4200/auth"),
+          redirect_uri: encodeURIComponent(`${location?.origin}/auth`),
           code_verifier: "HfdeySOBvTW4aAu3S0jRC4U-Njvhn0gaK733LJhB4Q-sXGrKP9RSNJg9FWX338WV0f28UpLQV-SROg2jXealgS4Qen53ViQjhi2T4MmULNtKYHRbRClJOzMbvheHl-uY"
         },
         GetCodeRequestParameters: {
           response_type: 'code',
-          redirect_uri: encodeURIComponent("http://localhost:4200/auth"),
+          redirect_uri: encodeURIComponent(`${location?.origin}/auth`),
           response_mode: 'query',
           code_challenge: '778s-lN2H4vsQE45ckbqaTPVEfgcd-oY1RiGUwmOtVs',
           code_challenge_method: 'S256'
