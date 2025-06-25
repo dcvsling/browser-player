@@ -18,7 +18,7 @@ export function provideAuth() {
     {
       provide: GetAccessTokenOptions,
       useValue: {
-        client_id: 'a39d10ff-3017-4e23-aef6-aeecf2688b52',
+        client_id: '99a45bd5-73e9-4439-a10d-9d00f9ae0052',
         scope: [
           "https://graph.microsoft.com/User.Read",
           "https://graph.microsoft.com/Files.Read",
