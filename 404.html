@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Redirecting...</title>
+    <link rel="icon" href="data:," />
+    <script>
+      (function () {
+        var isProjectPages = /^[^.]+\.github\.io$/i.test(window.location.hostname);
+        var pathSegmentsToKeep = isProjectPages ? 1 : 0;
+        var locationInfo = window.location;
+        var segments = locationInfo.pathname.split("/").filter(Boolean);
+        var baseSegments = segments.slice(0, pathSegmentsToKeep);
+        var basePath = baseSegments.length > 0 ? "/" + baseSegments.join("/") : "";
+        var routeSegments = segments.slice(pathSegmentsToKeep);
+        var requestedPath = "/" + routeSegments.join("/");
+
+        if (requestedPath === "/auth" || requestedPath === "/auth/") {
+          locationInfo.replace(locationInfo.origin + basePath + "/auth/index.html" + locationInfo.search + locationInfo.hash);
+          return;
+        }
+
+        var nextRoute = requestedPath === "/" ? "/player" : requestedPath;
+        locationInfo.replace(locationInfo.origin + basePath + "/?p=" + encodeURIComponent(nextRoute));
+      })();
+    </script>
+  </head>
+  <body></body>
+</html>
