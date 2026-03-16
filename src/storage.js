@@ -1,5 +1,7 @@
 import { APP_CONFIG } from "./config.js";
 
+const CLOUD_CACHE_VERSION = 2;
+
 const defaultState = {
   prefs: {
     shuffle: false,
@@ -54,6 +56,7 @@ const defaultState = {
     latestItemId: null,
     folderCTag: null,
     lastSyncedAt: null,
+    version: CLOUD_CACHE_VERSION,
   },
 };
 
@@ -98,9 +101,14 @@ function mergeDefaults(input) {
       latestItemId: input?.cloudCache?.latestItemId || null,
       folderCTag: input?.cloudCache?.folderCTag || null,
       lastSyncedAt: input?.cloudCache?.lastSyncedAt || null,
+      version: Number.isFinite(Number(input?.cloudCache?.version))
+        ? Number(input.cloudCache.version)
+        : 1,
     },
   };
 }
+
+export { CLOUD_CACHE_VERSION };
 
 function normalizeListViewMode(value) {
   if (value && typeof value === "object") {

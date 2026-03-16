@@ -17,7 +17,7 @@ import {
   resolveCurrentRoute,
   restoreGithubPagesRoute,
 } from "./routing.js";
-import { loadState, saveState } from "./storage.js";
+import { CLOUD_CACHE_VERSION, loadState, saveState } from "./storage.js";
 
 const state = loadState();
 const DEFAULT_HOTKEYS = {
@@ -117,6 +117,14 @@ const dom = {
 
 const playlist = new PlaylistController();
 const player = new Player(dom.video, dom.playerPanel);
+const legacyCacheNamePatterns = [
+  "browser-player",
+  "workbox",
+  "precache",
+  "runtime",
+  "vite-pwa",
+  "sw-cache",
+];
 
 function getListViewMode(target) {
   return state.prefs.listViewMode?.[target] === "text" ? "text" : "thumb";
@@ -129,6 +137,49 @@ function getListSort(target) {
     field: ["name", "modifiedAt", "sizeBytes"].includes(sort?.field) ? sort.field : fallback.field,
     direction: sort?.direction === "desc" ? "desc" : fallback.direction,
   };
+}
+
+function getAppScopePrefix() {
+  return `${window.location.origin}${buildAppUrl("/", appBasePath)}`;
+}
+
+async function cleanupLegacyOfflineState() {
+  const cleanupTasks = [];
+  const appScopePrefix = getAppScopePrefix();
+
+  if ("serviceWorker" in navigator) {
+    cleanupTasks.push(
+      navigator.serviceWorker.getRegistrations().then(async (registrations) => {
+        await Promise.all(
+          registrations
+            .filter((registration) => registration.scope.startsWith(appScopePrefix))
+            .map((registration) => registration.unregister())
+        );
+      })
+    );
+  }
+
+  if ("caches" in window) {
+    cleanupTasks.push(
+      caches.keys().then(async (keys) => {
+        await Promise.all(
+          keys
+            .filter((key) =>
+              legacyCacheNamePatterns.some((pattern) => key.toLowerCase().includes(pattern))
+            )
+            .map((key) => caches.delete(key))
+        );
+      })
+    );
+  }
+
+  if (cleanupTasks.length === 0) return;
+
+  try {
+    await Promise.all(cleanupTasks);
+  } catch (error) {
+    console.warn("舊版離線快取清理失敗", error);
+  }
 }
 
 function setListSort(target, patch) {
@@ -188,6 +239,7 @@ function resetCloudState() {
     latestItemId: null,
     folderCTag: null,
     lastSyncedAt: null,
+    version: CLOUD_CACHE_VERSION,
   };
   state.playback.currentId = null;
   state.playback.currentTime = 0;
@@ -790,7 +842,7 @@ async function syncCloudVideos({ force = false } = {}) {
   setLoading(true, "檢查雲端清單中...");
   try {
     const token = await getAccessToken();
-    const requireMetadataRefresh = hasIncompleteCloudCache();
+    const requireMetadataRefresh = needsCloudCacheUpgrade();
 
     if (!force && !requireMetadataRefresh && cloudTracks.length > 0 && state.cloudCache.folderCTag) {
       try {
@@ -835,6 +887,7 @@ async function syncCloudVideos({ force = false } = {}) {
         const latest = computeLatest(cloudTracks);
         state.cloudCache.latestModifiedAt = latest.latestModifiedAt;
         state.cloudCache.latestItemId = latest.latestItemId;
+        state.cloudCache.version = CLOUD_CACHE_VERSION;
         try {
           const marker = await fetchFolderMarker(token);
           state.cloudCache.folderCTag = marker.cTag || null;
@@ -875,6 +928,7 @@ async function syncCloudVideos({ force = false } = {}) {
     const latest = computeLatest(cloudTracks);
     state.cloudCache.latestModifiedAt = latest.latestModifiedAt;
     state.cloudCache.latestItemId = latest.latestItemId;
+    state.cloudCache.version = CLOUD_CACHE_VERSION;
     try {
       const marker = await fetchFolderMarker(token);
       state.cloudCache.folderCTag = marker.cTag || null;
@@ -907,8 +961,8 @@ function cacheHydratedTrack(track) {
   cloudTracks = hasMatch ? next : cloudTracks;
 }
 
-function hasIncompleteCloudCache() {
-  return cloudTracks.some((track) => !track.thumbnailUrl || !track.durationMs);
+function needsCloudCacheUpgrade() {
+  return Number(state.cloudCache?.version || 1) < CLOUD_CACHE_VERSION;
 }
 
 function mergeTrackWithCache(track, cached) {
@@ -1263,6 +1317,7 @@ function bindEvents() {
 }
 
 async function bootstrap() {
+  await cleanupLegacyOfflineState();
   bindEvents();
   bindHotkeys();
   bindShortcutEditors();

@@ -12,7 +12,7 @@
 - 本機 OAuth redirect URI 使用 `http://localhost:4200/auth`。
 - 路由採用 History API，不使用 `/#/`。
 - 靜態部署需支援 SPA fallback；GitHub Pages 類型部署以 `404.html` 做路由還原。
-- Azure Static Web Apps CI/CD 需改為部署目前 Vite build 後的 `dist/`。
+- 部署流程需可直接使用 GitHub Actions 完成 build 與 GitHub Pages 部署，不依賴 Azure Static Web Apps deploy action 或 deployment token。
 
 ## 3. 驗證與雲端整合
 - 使用 MSAL Public Client + PKCE 完成登入。
@@ -21,6 +21,9 @@
 - 支援完整重建與 delta 增量同步。
 - 影片播放前需能補齊可播放的下載串流 URL。
 - 雲端資料需快取於 `localStorage`，並保留同步時間與必要 marker。
+- 進站時不得無條件強制重建雲端清單。
+- 應先使用快取狀態、`folderCTag`、`deltaLink` 等條件判斷是否需要同步。
+- 若因快取資料結構升級需要補 metadata，應以版本升級方式只處理必要的一次，不可每次進站都觸發完整重建。
 
 ## 4. 頁面與導覽
 - 最上層至少包含以下頁籤：
@@ -143,12 +146,22 @@
 - 雲端影片快取
 - 檢視模式設定
 - 清單排序設定
+- 雲端快取版本資訊
 
-## 13. 驗收重點
+## 13. 快取與舊版清理需求
+- 若站台從舊 PWA / 舊 service worker 架構遷移，需在新版啟動時嘗試清理舊的離線狀態。
+- 清理內容至少包含：
+- 舊 service worker 註銷
+- 舊 cache storage 清理
+- 清理範圍應盡量限制在本應用 scope，避免波及同網域其他應用。
+
+## 14. 驗收重點
 - 可在無後端情境下登入並讀取 OneDrive 影片。
 - 可正確播放、切換、快轉、快退、調整音量、速度、循環與隨機。
 - 全螢幕下自訂控制與播放清單抽屜仍可使用。
 - 清單頁不會整頁捲動，左右清單各自捲動。
 - 自訂清單與雲端清單的點擊語意明確且互不混淆。
 - 各清單檢視模式可各自切換並被保存。
+- 各清單排序設定可各自切換並被保存。
+- 舊 PWA / service worker 使用者在進入新版站台後，應能逐步脫離舊快取影響。
 - 重新整理或重新進站後，偏好、清單與播放狀態可恢復。

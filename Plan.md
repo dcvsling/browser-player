@@ -23,7 +23,11 @@
 - `/playlist`
 - `/settings`
 - 已加入 `404.html` fallback，支援 GitHub Pages 類型的靜態部署回復路由。
-- Azure Static Web Apps workflow 已改為部署目前 Vite build 的 `dist/`。
+- 已移除 Azure Static Web Apps deploy action，改為 GitHub Pages 官方 actions 流程：
+- build
+- upload artifact
+- deploy-pages
+- 已不再依賴 Azure deployment token。
 
 ### 2.3 OAuth 與 OneDrive 整合
 - 已完成 MSAL 初始化、登入、登出、redirect 處理。
@@ -31,6 +35,8 @@
 - 已完成 Graph API 讀取 OneDrive 指定資料夾影片。
 - 已完成 children 全量重建與 delta 增量同步。
 - 已完成串流 URL 補水與快取。
+- 已補上舊 PWA / 舊 service worker 清理機制，站台啟動時會嘗試註銷舊 SW 並清理舊 cache。
+- 已將 metadata 補正改為快取版本升級機制，不再因缺縮圖 / 片長而每次進站都觸發完整雲端重建。
 
 ### 2.4 播放器
 - 已完成自訂播放器控制列。
@@ -70,25 +76,36 @@
 - 影片 metadata 載入後，片長會回寫到快取中以提高準確性。
 - 已補上 Graph `thumbnails` 與 metadata 取得流程；舊快取若缺少縮圖或片長，會強制重建 metadata。
 - 清單排序功能尚未實作，目前已確認需求需支援名稱 / 最後更新日期 / 大小，且可遞增 / 遞減排序。
+### 2.7 清單排序
+- 已完成雲端清單、自訂清單、播放器右側播放清單的獨立排序功能。
+- 已支援排序欄位：
+- 名稱
+- 最後更新日期
+- 大小
+- 已支援遞增 / 遞減切換。
+- 排序設定已保存於 `localStorage`。
+- OneDrive track model 已補入 `sizeBytes`，供大小排序使用。
 
-### 2.7 設定與快捷鍵
+### 2.8 設定與快捷鍵
 - 已建立獨立的 `設定` 頁面。
 - 已完成快捷鍵啟用開關。
 - 已完成快捷鍵自訂編輯與重設。
 - 已支援單鍵、`Ctrl`、`Alt`、`Shift` 組合鍵與特殊鍵。
 - 設定已保存於 `localStorage`。
 
-### 2.8 帳號顯示
+### 2.9 帳號顯示
 - 右上角帳號區已改為頭像 badge 形式。
 - 名稱不常駐顯示，只保留於 title / 無障礙文字。
 
-### 2.9 文件
+### 2.10 文件
 - 已建立 `Requirement.md`，整合原始需求與目前累積的實作規格。
-- 本次已同步更新 `Plan.md`，反映截至目前的實際進度。
+- 本次已再次同步更新 `Requirement.md` 與 `Plan.md`，反映部署、舊快取清理、排序功能與同步策略修正。
 
 ## 3. 目前已知待驗證事項
 - 需在真實 OneDrive 帳號下確認 `thumbnails` 是否穩定返回；若部分來源仍無縮圖，需決定是否改為本地產生 poster。
 - 需以真實帳號驗證片長顯示與實際播放長度在更多影片上的一致性。
+- 需驗證 GitHub Pages 新部署流程在實際 repo 設定下可正常發布。
+- 需驗證舊 PWA 使用者進入新版後，service worker / cache 清理是否足以讓多數使用者自動更新。
 - 需在 Chrome / Edge 實測：
 - 登入
 - 同步
@@ -99,9 +116,9 @@
 
 ## 4. 後續優先工作
 1. 實機驗證縮圖、片長與 OneDrive metadata 的穩定性。
-2. 補上清單排序功能，支援名稱 / 最後更新日期 / 大小，以及遞增 / 遞減。
+2. 驗證 GitHub Pages 新 workflow 與 Pages 設定是否完全對齊。
 3. 視驗證結果決定是否補做本地縮圖 / poster 產生機制。
-4. 驗證正式部署時的 Azure redirect URI 與靜態站路由 fallback 是否完全一致。
+4. 驗證正式部署時的 OAuth redirect URI、靜態站路由 fallback 與實際 Pages URL 是否完全一致。
 
 ## 5. 目前狀態
 - 功能開發已達可用階段，現階段重點轉為真實帳號資料驗證與部署前收斂。
