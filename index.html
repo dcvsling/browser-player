@@ -3,8 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Browser Player AI</title>
+    <title>等待播放</title>
     <link rel="icon" href="data:," />
+    <meta name="theme-color" content="#111318" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="等待播放" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -22,7 +29,10 @@
     </div>
 
     <header class="topbar">
-      <h1>Browser Player AI</h1>
+      <div class="title-block">
+        <h1 id="appTitle">等待播放</h1>
+        <div class="title-subtitle">Browser Player AI</div>
+      </div>
       <nav class="main-nav">
         <button id="navPlayerBtn" type="button" data-route="/player" class="icon-btn" aria-label="播放器" title="播放器">
           <span class="material-symbols-rounded" aria-hidden="true">smart_display</span>
@@ -35,6 +45,15 @@
         </button>
       </nav>
       <div class="auth-actions">
+        <button
+          id="installAppBtn"
+          type="button"
+          class="icon-btn hidden"
+          aria-label="安裝應用程式"
+          title="安裝應用程式"
+        >
+          <span class="material-symbols-rounded" aria-hidden="true">download_for_offline</span>
+        </button>
         <div id="accountBadge" class="account-badge">
           <img id="accountAvatar" class="account-avatar hidden" alt="" />
           <span id="accountFallback" class="account-fallback" aria-hidden="true">?</span>
@@ -63,6 +82,16 @@
                 </div>
                 <div id="activeListLabel" class="sync-info"></div>
               </div>
+              <button
+                id="mobileMenuBtn"
+                type="button"
+                class="icon-btn mobile-only"
+                aria-expanded="false"
+                aria-label="顯示功能選單"
+                title="顯示功能選單"
+              >
+                <span class="material-symbols-rounded" aria-hidden="true">menu</span>
+              </button>
               <button
                 id="queueToggleBtn"
                 type="button"

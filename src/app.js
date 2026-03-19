@@ -42,12 +42,18 @@ let lastRecoveryAt = 0;
 let isScrubbing = false;
 let capturingShortcutAction = null;
 let fullscreenControlsTimer = 0;
+let deferredInstallPrompt = null;
+let isMobileLayout = window.matchMedia("(max-width: 900px)").matches;
+let mobilePlayerChromeVisible = false;
 const appBasePath = detectAppBasePath(window.location.pathname);
 
 const dom = {
+  appTitle: document.getElementById("appTitle"),
   navPlayerBtn: document.getElementById("navPlayerBtn"),
   navPlaylistBtn: document.getElementById("navPlaylistBtn"),
   navSettingsBtn: document.getElementById("navSettingsBtn"),
+  installAppBtn: document.getElementById("installAppBtn"),
+  mobileMenuBtn: document.getElementById("mobileMenuBtn"),
   accountBadge: document.getElementById("accountBadge"),
   accountAvatar: document.getElementById("accountAvatar"),
   accountFallback: document.getElementById("accountFallback"),
@@ -121,10 +127,55 @@ const legacyCacheNamePatterns = [
   "browser-player",
   "workbox",
   "precache",
-  "runtime",
   "vite-pwa",
   "sw-cache",
 ];
+
+function getWaitingTitle() {
+  return "等待播放";
+}
+
+function getPlaybackTitle() {
+  const active = String(dom.nowPlaying?.textContent || "").trim();
+  return active && active !== "尚未選擇影片" ? `正在播放：${active}` : getWaitingTitle();
+}
+
+function updateAppTitle() {
+  const title = getPlaybackTitle();
+  if (dom.appTitle) {
+    dom.appTitle.textContent = title;
+  }
+  document.title = title;
+  document
+    .querySelector('meta[name="apple-mobile-web-app-title"]')
+    ?.setAttribute("content", title);
+}
+
+function setMobilePlayerChromeVisible(visible) {
+  mobilePlayerChromeVisible = Boolean(visible) && isMobileLayout && currentRoute === "/player";
+  document.body.classList.toggle("mobile-player-chrome-visible", mobilePlayerChromeVisible);
+  if (dom.mobileMenuBtn) {
+    dom.mobileMenuBtn.setAttribute("aria-expanded", String(mobilePlayerChromeVisible));
+  }
+}
+
+function applyMobileLayoutState() {
+  isMobileLayout = window.matchMedia("(max-width: 900px)").matches;
+  document.body.classList.toggle("mobile-layout", isMobileLayout);
+  if (!isMobileLayout) {
+    setMobilePlayerChromeVisible(false);
+    return;
+  }
+  if (currentRoute === "/settings") {
+    updateRoute("/player", true);
+    return;
+  }
+  if (currentRoute !== "/player") {
+    setMobilePlayerChromeVisible(false);
+  } else {
+    document.body.classList.toggle("mobile-player-chrome-visible", mobilePlayerChromeVisible);
+  }
+}
 
 function getListViewMode(target) {
   return state.prefs.listViewMode?.[target] === "text" ? "text" : "thumb";
@@ -146,13 +197,22 @@ function getAppScopePrefix() {
 async function cleanupLegacyOfflineState() {
   const cleanupTasks = [];
   const appScopePrefix = getAppScopePrefix();
+  const currentSwSuffix = buildAppUrl("/sw.js", appBasePath);
 
   if ("serviceWorker" in navigator) {
     cleanupTasks.push(
       navigator.serviceWorker.getRegistrations().then(async (registrations) => {
         await Promise.all(
           registrations
-            .filter((registration) => registration.scope.startsWith(appScopePrefix))
+            .filter((registration) => {
+              if (!registration.scope.startsWith(appScopePrefix)) return false;
+              const scriptUrl =
+                registration.active?.scriptURL ||
+                registration.waiting?.scriptURL ||
+                registration.installing?.scriptURL ||
+                "";
+              return !scriptUrl.endsWith(currentSwSuffix);
+            })
             .map((registration) => registration.unregister())
         );
       })
@@ -179,6 +239,35 @@ async function cleanupLegacyOfflineState() {
     await Promise.all(cleanupTasks);
   } catch (error) {
     console.warn("舊版離線快取清理失敗", error);
+  }
+}
+
+function updateInstallButton() {
+  const isInstalled =
+    window.matchMedia?.("(display-mode: standalone)")?.matches ||
+    window.navigator.standalone === true;
+  dom.installAppBtn.classList.toggle("hidden", !deferredInstallPrompt || isInstalled);
+}
+
+async function installApp() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  try {
+    await deferredInstallPrompt.userChoice;
+  } finally {
+    deferredInstallPrompt = null;
+    updateInstallButton();
+  }
+}
+
+async function registerPwa() {
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    await navigator.serviceWorker.register(buildAppUrl("/sw.js", appBasePath), {
+      scope: buildAppUrl("/", appBasePath),
+    });
+  } catch (error) {
+    console.warn("PWA service worker 註冊失敗", error);
   }
 }
 
@@ -244,6 +333,7 @@ function resetCloudState() {
   state.playback.currentId = null;
   state.playback.currentTime = 0;
   dom.nowPlaying.textContent = "尚未選擇影片";
+  updateAppTitle();
   player.pause();
   dom.video.removeAttribute("src");
   dom.video.load();
@@ -402,7 +492,8 @@ function revealFullscreenControls() {
 }
 
 function updateRoute(route, replace = false) {
-  currentRoute = normalizeRoute(route);
+  const normalizedRoute = normalizeRoute(route);
+  currentRoute = isMobileLayout && normalizedRoute === "/settings" ? "/player" : normalizedRoute;
   const nextUrl = buildAppUrl(currentRoute, appBasePath);
   if (replace) {
     window.history.replaceState({}, "", nextUrl);
@@ -415,12 +506,13 @@ function updateRoute(route, replace = false) {
 function renderRoute() {
   const isPlayer = currentRoute === "/player";
   const isPlaylist = currentRoute === "/playlist";
-  const isSettings = currentRoute === "/settings";
+  const isSettings = !isMobileLayout && currentRoute === "/settings";
   dom.playerPanel.classList.toggle("hidden", !isPlayer);
   dom.libraryPanel.classList.toggle("hidden", !isPlaylist);
   dom.customPanel.classList.toggle("hidden", !isPlaylist);
   dom.settingsPanel.classList.toggle("hidden", !isSettings);
   if (!isPlayer) setQueueOpen(false);
+  if (!isPlayer) setMobilePlayerChromeVisible(false);
 
   document.body.classList.toggle("route-player", isPlayer);
   document.body.classList.toggle("route-playlist", isPlaylist);
@@ -554,6 +646,7 @@ function renderListLabels() {
   dom.activeListLabel.textContent = `播放器清單：${activeText}`;
   dom.editingListLabel.textContent =
     `正在編輯：${editing?.name || "未選擇"}（請在左側雲端清單點「加入」）`;
+  updateAppTitle();
 }
 
 function createThumb(track) {
@@ -769,6 +862,7 @@ async function startPlayback(trackId, fromTime = 0, opts = {}) {
   const current = playlist.setCurrentById(trackId);
   if (!current) {
     dom.nowPlaying.textContent = "找不到影片，可能已被移除。";
+    updateAppTitle();
     persistAndRender();
     return;
   }
@@ -794,6 +888,7 @@ async function startPlayback(trackId, fromTime = 0, opts = {}) {
 
   player.load(playable, fromTime);
   dom.nowPlaying.textContent = playable.name;
+  updateAppTitle();
   updatePlaybackProgress(fromTime, dom.video.duration || 0);
   persistAndRender();
 
@@ -904,6 +999,35 @@ async function syncCloudVideos({ force = false } = {}) {
         }
         console.warn("deltaLink 失效，改走完整重建", error);
         state.cloudCache.deltaLink = null;
+      }
+    }
+
+    if (!state.cloudCache.deltaLink) {
+      try {
+        setLoading(true, "首次整理雲端清單中...");
+        const full = await fetchAllVideosViaDelta(token, (progress) => {
+          setLoading(true, `首次整理中... ${progress.message}`);
+        });
+        const existingMap = new Map(cloudTracks.map((track) => [track.id, track]));
+        cloudTracks = full.tracks
+          .map((track) => mergeTrackWithCache(track, existingMap.get(track.id)))
+          .sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
+        state.cloudCache.deltaLink = full.deltaLink;
+        state.cloudCache.latestModifiedAt = full.latest.latestModifiedAt;
+        state.cloudCache.latestItemId = full.latest.latestItemId;
+        state.cloudCache.version = CLOUD_CACHE_VERSION;
+        try {
+          const marker = await fetchFolderMarker(token);
+          state.cloudCache.folderCTag = marker.cTag || null;
+        } catch {
+          state.cloudCache.folderCTag = null;
+        }
+        state.cloudCache.lastSyncedAt = new Date().toISOString();
+        ensurePlaybackTarget();
+        persistAndRender();
+        return;
+      } catch (error) {
+        console.warn("首次 delta 初始化失敗，改走 children 重建", error);
       }
     }
 
@@ -1125,12 +1249,26 @@ function bindShortcutEditors() {
 }
 
 function bindEvents() {
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    updateInstallButton();
+  });
+  window.addEventListener("appinstalled", () => {
+    deferredInstallPrompt = null;
+    updateInstallButton();
+  });
   dom.navPlayerBtn.addEventListener("click", () => updateRoute("/player"));
   dom.navPlaylistBtn.addEventListener("click", () => updateRoute("/playlist"));
   dom.navSettingsBtn.addEventListener("click", () => updateRoute("/settings"));
+  dom.installAppBtn.addEventListener("click", () => installApp());
+  dom.mobileMenuBtn.addEventListener("click", () => {
+    setMobilePlayerChromeVisible(!mobilePlayerChromeVisible);
+  });
   dom.queueToggleBtn.addEventListener("click", () => setQueueOpen(!queueOpen));
   dom.queueCloseBtn.addEventListener("click", () => setQueueOpen(false));
   window.addEventListener("popstate", () => updateRoute(resolveCurrentRoute(window.location.pathname, appBasePath), true));
+  window.matchMedia("(max-width: 900px)").addEventListener("change", () => applyMobileLayoutState());
   ["pointermove", "pointerdown", "touchstart"].forEach((eventName) => {
     dom.playerPanel.addEventListener(eventName, () => revealFullscreenControls(), { passive: true });
   });
@@ -1275,8 +1413,14 @@ function bindEvents() {
 
   dom.video.addEventListener("ended", () => playNext());
   dom.video.addEventListener("error", () => recoverCurrentPlayback());
-  dom.video.addEventListener("play", () => syncPlayerPrefs());
-  dom.video.addEventListener("pause", () => syncPlayerPrefs());
+  dom.video.addEventListener("play", () => {
+    syncPlayerPrefs();
+    updateAppTitle();
+  });
+  dom.video.addEventListener("pause", () => {
+    syncPlayerPrefs();
+    updateAppTitle();
+  });
   dom.video.addEventListener("loadedmetadata", () => {
     updateTrackDuration(state.playback.currentId, dom.video.duration);
     updatePlaybackProgress(dom.video.currentTime, dom.video.duration);
@@ -1318,11 +1462,15 @@ function bindEvents() {
 
 async function bootstrap() {
   await cleanupLegacyOfflineState();
+  await registerPwa();
   bindEvents();
   bindHotkeys();
   bindShortcutEditors();
+  applyMobileLayoutState();
   setQueueOpen(false);
   updatePlaybackProgress(0, 0);
+  updateAppTitle();
+  updateInstallButton();
   updateRoute(
     restoreGithubPagesRoute(appBasePath) || resolveCurrentRoute(window.location.pathname, appBasePath),
     true
@@ -1367,6 +1515,7 @@ async function bootstrap() {
     const track = active.find((item) => item.id === state.playback.currentId);
     if (track) {
       dom.nowPlaying.textContent = track.name;
+       updateAppTitle();
       await startPlayback(track.id, state.playback.currentTime || 0, {
         autoplay: false,
         silentError: true,

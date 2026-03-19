@@ -106,6 +106,8 @@
 - 需以真實帳號驗證片長顯示與實際播放長度在更多影片上的一致性。
 - 需驗證 GitHub Pages 新部署流程在實際 repo 設定下可正常發布。
 - 需驗證舊 PWA 使用者進入新版後，service worker / cache 清理是否足以讓多數使用者自動更新。
+- 需在 Android 裝置上驗證新版 PWA 是否可安裝、可啟動、可更新。
+- 需在 Redmi Note 11 Pro 5G 與 Samsung Fold 4 實測手機版版面、觸控與可摺疊寬度切換。
 - 需在 Chrome / Edge 實測：
 - 登入
 - 同步
@@ -115,10 +117,12 @@
 - 重新整理後狀態恢復
 
 ## 4. 後續優先工作
-1. 實機驗證縮圖、片長與 OneDrive metadata 的穩定性。
-2. 驗證 GitHub Pages 新 workflow 與 Pages 設定是否完全對齊。
-3. 視驗證結果決定是否補做本地縮圖 / poster 產生機制。
-4. 驗證正式部署時的 OAuth redirect URI、靜態站路由 fallback 與實際 Pages URL 是否完全一致。
+1. 實機驗證 Android 手機版 UI、PWA 安裝流程與不同寬度版面切換。
+2. 驗證首次同步在手機上的體感速度是否已改善，必要時再做更進一步的 metadata / thumbnail 延後載入。
+3. 實機驗證縮圖、片長與 OneDrive metadata 的穩定性。
+4. 驗證 GitHub Pages 新 workflow 與 Pages 設定是否完全對齊。
+5. 視驗證結果決定是否補做本地縮圖 / poster 產生機制。
+6. 驗證正式部署時的 OAuth redirect URI、靜態站路由 fallback 與實際 Pages URL 是否完全一致。
 
 ## 5. 目前狀態
-- 功能開發已達可用階段，現階段重點轉為真實帳號資料驗證與部署前收斂。
+- 功能開發已進入手機適配與 PWA 重建階段，接下來重點是 Android 裝置實測、首次同步效能驗證與部署前收斂。

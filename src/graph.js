@@ -10,7 +10,7 @@ export async function fetchAllVideosViaDelta(accessToken, onProgress) {
     throw new Error("目前 childrenEndpoint 不支援 delta，同步將改用全量 children。");
   }
   const { driveId, itemId } = root;
-  const startUrl = buildDeltaStartUrl(driveId, itemId);
+  const startUrl = decorateDeltaUrl(buildDeltaStartUrl(driveId, itemId));
   const result = await fetchDeltaPages(accessToken, startUrl, onProgress);
   const tracks = toTracksFromItems(result.items, driveId);
 
@@ -63,7 +63,7 @@ export async function fetchVideoDelta(accessToken, deltaLink, onProgress) {
     throw new Error("缺少 deltaLink，無法執行增量同步。");
   }
 
-  const result = await fetchDeltaPages(accessToken, deltaLink, onProgress);
+  const result = await fetchDeltaPages(accessToken, decorateDeltaUrl(deltaLink), onProgress);
   const changedVideos = [];
   const deletedIds = [];
 
@@ -287,6 +287,19 @@ function buildDeltaStartUrl(driveId, itemId) {
   return `https://graph.microsoft.com/v1.0/drives/${strictEncodePathSegment(
     driveId
   )}/items/${strictEncodePathSegment(itemId)}/delta`;
+}
+
+function decorateDeltaUrl(url) {
+  const raw = String(url || "").trim();
+  if (!raw) return raw;
+  const parsed = new URL(raw);
+  if (!parsed.searchParams.has("$select")) {
+    parsed.searchParams.set(
+      "$select",
+      "id,name,webUrl,lastModifiedDateTime,size,file,video,parentReference"
+    );
+  }
+  return parsed.toString();
 }
 
 function toTracksFromItems(items, fallbackDriveId = null) {
