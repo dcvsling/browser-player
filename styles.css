@@ -844,18 +844,55 @@ button[aria-pressed="true"] {
   }
 
   .topbar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+    align-items: start;
     padding-left: 14px;
     padding-right: 14px;
+    row-gap: 8px;
   }
 
   .main-nav {
-    order: 3;
-    width: 100%;
-    justify-content: space-between;
+    grid-column: 1;
+    grid-row: 1;
+    order: 0;
+    width: auto;
+    justify-content: flex-start;
+    gap: 6px;
   }
 
   .auth-actions {
+    grid-column: 2;
+    grid-row: 1;
     margin-left: 0;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .title-block {
+    grid-column: 1 / span 2;
+    grid-row: 2;
+  }
+
+  .topbar .icon-btn {
+    min-width: 36px;
+    min-height: 36px;
+    padding: 6px;
+  }
+
+  .topbar .material-symbols-rounded {
+    font-size: 18px;
+  }
+
+  .topbar .account-badge {
+    padding: 4px;
+  }
+
+  .topbar .account-avatar,
+  .topbar .account-fallback {
+    width: 28px;
+    height: 28px;
   }
 
   .layout {
@@ -895,7 +932,7 @@ button[aria-pressed="true"] {
   }
 
   .player-overlay {
-    padding: 12px;
+    padding: 10px 12px;
   }
 
   .controls {
@@ -923,10 +960,11 @@ button[aria-pressed="true"] {
     top: auto;
     left: 10px;
     right: 10px;
-    bottom: 10px;
+    bottom: calc(150px + env(safe-area-inset-bottom, 0px));
     width: auto;
-    height: min(62dvh, 520px);
+    height: min(46dvh, 420px);
     border-radius: 18px;
+    z-index: 8;
   }
 
   .list[data-view-mode="thumb"] {
@@ -975,14 +1013,82 @@ button[aria-pressed="true"] {
 
   body.mobile-layout.route-player .player-overlay.top {
     padding-top: calc(10px + env(safe-area-inset-top, 0px));
+    background: linear-gradient(180deg, rgba(5, 9, 16, 0.8), rgba(5, 9, 16, 0));
   }
 
   body.mobile-layout.route-player .player-overlay.bottom {
+    padding-top: 8px;
     padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(0deg, rgba(5, 9, 16, 0.94), rgba(5, 9, 16, 0.72));
+    border-top: 1px solid rgba(125, 197, 255, 0.18);
   }
 
   body.mobile-layout.route-player .player-meta .sync-info {
     display: none;
+  }
+
+  body.mobile-layout.route-player .player-head {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+
+  body.mobile-layout.route-player .now-playing {
+    margin-bottom: 0;
+    font-size: 0.9rem;
+  }
+
+  body.mobile-layout.route-player .progress-panel {
+    margin-bottom: 8px;
+  }
+
+  body.mobile-layout.route-player .progress-panel .sync-info {
+    font-size: 0.78rem;
+    margin-top: 2px;
+  }
+
+  body.mobile-layout.route-player .controls-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  body.mobile-layout.route-player .player-controls,
+  body.mobile-layout.route-player .player-secondary-controls {
+    justify-content: center;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    margin-bottom: 0;
+  }
+
+  body.mobile-layout.route-player .player-controls .icon-btn,
+  body.mobile-layout.route-player .player-secondary-controls .icon-btn {
+    flex: 0 0 auto;
+  }
+
+  body.mobile-layout.route-player .player-secondary-controls {
+    display: none;
+  }
+
+  body.mobile-layout.route-player.mobile-player-chrome-visible .player-secondary-controls {
+    display: flex;
+  }
+
+  body.mobile-layout.route-player .overlay-control,
+  body.mobile-layout.route-player .overlay-select {
+    display: none;
+    min-width: 0;
+  }
+
+  body.mobile-layout.route-player.mobile-player-chrome-visible .overlay-control,
+  body.mobile-layout.route-player.mobile-player-chrome-visible .overlay-select {
+    display: inline-flex;
+  }
+
+  body.mobile-layout.route-player .queue-toggle {
+    display: inline-flex;
   }
 
   body.mobile-layout.route-player #playQueueList[data-view-mode="thumb"] {
@@ -998,6 +1104,16 @@ button[aria-pressed="true"] {
 
   body.mobile-layout.route-player #playQueueList[data-view-mode="thumb"] li {
     min-height: 118px;
+  }
+
+  body.mobile-layout.route-player .queue-toggle {
+    min-width: 34px;
+    min-height: 34px;
+    padding: 5px;
+  }
+
+  body.mobile-layout.route-player .queue-toggle .material-symbols-rounded {
+    font-size: 17px;
   }
 
   body.mobile-layout.route-playlist .layout {
@@ -1028,6 +1144,10 @@ button[aria-pressed="true"] {
     position: sticky;
     top: 0;
     z-index: 2;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
     margin: -12px -12px 0;
     padding: 10px 12px;
     border-bottom: 1px solid rgba(125, 197, 255, 0.14);
@@ -1048,6 +1168,23 @@ button[aria-pressed="true"] {
   body.mobile-layout.route-playlist .list-tools {
     display: none !important;
   }
+
+  body.mobile-layout.route-playlist .panel.mobile-tools-open .head-actions,
+  body.mobile-layout.route-playlist .panel.mobile-tools-open #syncInfo,
+  body.mobile-layout.route-playlist .panel.mobile-tools-open #editingListLabel,
+  body.mobile-layout.route-playlist .panel.mobile-tools-open .list-tools {
+    display: flex !important;
+  }
+
+  body.mobile-layout.route-playlist .panel.mobile-tools-open #syncInfo,
+  body.mobile-layout.route-playlist .panel.mobile-tools-open #editingListLabel {
+    display: block !important;
+  }
+
+  body.mobile-layout.route-playlist .panel.mobile-tools-open .head-actions,
+  body.mobile-layout.route-playlist .panel.mobile-tools-open .list-tools {
+    margin-top: 8px;
+  }
 }
 
 @media (max-width: 640px) {
@@ -1056,11 +1193,27 @@ button[aria-pressed="true"] {
   }
 
   .topbar h1 {
-    font-size: 0.98rem;
+    font-size: 0.9rem;
   }
 
   .title-subtitle {
-    font-size: 0.72rem;
+    font-size: 0.68rem;
+  }
+
+  .topbar .icon-btn {
+    min-width: 34px;
+    min-height: 34px;
+    padding: 5px;
+  }
+
+  .topbar .material-symbols-rounded {
+    font-size: 17px;
+  }
+
+  .topbar .account-avatar,
+  .topbar .account-fallback {
+    width: 26px;
+    height: 26px;
   }
 
   .layout {
@@ -1129,11 +1282,26 @@ button[aria-pressed="true"] {
 
   .queue-drawer {
     left: auto;
-    top: 10px;
-    right: 10px;
-    bottom: 10px;
-    width: min(360px, 46vw);
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(360px, 48vw);
     height: auto;
+    z-index: 8;
+    border-radius: 0;
+  }
+
+  body.mobile-layout.route-player #playQueueList[data-view-mode="thumb"] {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-auto-flow: row;
+    grid-auto-columns: initial;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  body.mobile-layout.route-player #playQueueList[data-view-mode="thumb"] li {
+    min-height: 132px;
   }
 
   body.mobile-layout.route-playlist .layout {

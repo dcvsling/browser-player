@@ -45,6 +45,8 @@ let fullscreenControlsTimer = 0;
 let deferredInstallPrompt = null;
 let isMobileLayout = window.matchMedia("(max-width: 900px)").matches;
 let mobilePlayerChromeVisible = false;
+let mobileCloudToolsVisible = false;
+let mobileCustomToolsVisible = false;
 const appBasePath = detectAppBasePath(window.location.pathname);
 
 const dom = {
@@ -64,12 +66,14 @@ const dom = {
   cloudSortFieldSelect: document.getElementById("cloudSortFieldSelect"),
   cloudSortDirectionBtn: document.getElementById("cloudSortDirectionBtn"),
   cloudViewModeBtn: document.getElementById("cloudViewModeBtn"),
+  cloudMobileToolsBtn: document.getElementById("cloudMobileToolsBtn"),
   cloudList: document.getElementById("cloudList"),
   customListSelect: document.getElementById("customListSelect"),
   customSortFieldSelect: document.getElementById("customSortFieldSelect"),
   customSortDirectionBtn: document.getElementById("customSortDirectionBtn"),
   customTracks: document.getElementById("customTracks"),
   customViewModeBtn: document.getElementById("customViewModeBtn"),
+  customMobileToolsBtn: document.getElementById("customMobileToolsBtn"),
   newListBtn: document.getElementById("newListBtn"),
   deleteListBtn: document.getElementById("deleteListBtn"),
   setActiveListBtn: document.getElementById("setActiveListBtn"),
@@ -141,7 +145,14 @@ function getPlaybackTitle() {
 }
 
 function updateAppTitle() {
-  const title = getPlaybackTitle();
+  let title = getWaitingTitle();
+  if (currentRoute === "/player") {
+    title = getPlaybackTitle();
+  } else if (currentRoute === "/playlist") {
+    title = "播放清單";
+  } else if (currentRoute === "/settings") {
+    title = "設定";
+  }
   if (dom.appTitle) {
     dom.appTitle.textContent = title;
   }
@@ -159,11 +170,27 @@ function setMobilePlayerChromeVisible(visible) {
   }
 }
 
+function syncMobilePlaylistToolsVisibility() {
+  const showCloud = Boolean(mobileCloudToolsVisible) && isMobileLayout && currentRoute === "/playlist";
+  const showCustom = Boolean(mobileCustomToolsVisible) && isMobileLayout && currentRoute === "/playlist";
+  dom.libraryPanel.classList.toggle("mobile-tools-open", showCloud);
+  dom.customPanel.classList.toggle("mobile-tools-open", showCustom);
+  if (dom.cloudMobileToolsBtn) {
+    dom.cloudMobileToolsBtn.setAttribute("aria-expanded", String(showCloud));
+  }
+  if (dom.customMobileToolsBtn) {
+    dom.customMobileToolsBtn.setAttribute("aria-expanded", String(showCustom));
+  }
+}
+
 function applyMobileLayoutState() {
   isMobileLayout = window.matchMedia("(max-width: 900px)").matches;
   document.body.classList.toggle("mobile-layout", isMobileLayout);
   if (!isMobileLayout) {
     setMobilePlayerChromeVisible(false);
+    mobileCloudToolsVisible = false;
+    mobileCustomToolsVisible = false;
+    syncMobilePlaylistToolsVisibility();
     return;
   }
   if (currentRoute === "/settings") {
@@ -175,6 +202,7 @@ function applyMobileLayoutState() {
   } else {
     document.body.classList.toggle("mobile-player-chrome-visible", mobilePlayerChromeVisible);
   }
+  syncMobilePlaylistToolsVisibility();
 }
 
 function getListViewMode(target) {
@@ -513,6 +541,11 @@ function renderRoute() {
   dom.settingsPanel.classList.toggle("hidden", !isSettings);
   if (!isPlayer) setQueueOpen(false);
   if (!isPlayer) setMobilePlayerChromeVisible(false);
+  if (!isPlaylist) {
+    mobileCloudToolsVisible = false;
+    mobileCustomToolsVisible = false;
+  }
+  syncMobilePlaylistToolsVisibility();
 
   document.body.classList.toggle("route-player", isPlayer);
   document.body.classList.toggle("route-playlist", isPlaylist);
@@ -1264,6 +1297,14 @@ function bindEvents() {
   dom.installAppBtn.addEventListener("click", () => installApp());
   dom.mobileMenuBtn.addEventListener("click", () => {
     setMobilePlayerChromeVisible(!mobilePlayerChromeVisible);
+  });
+  dom.cloudMobileToolsBtn?.addEventListener("click", () => {
+    mobileCloudToolsVisible = !mobileCloudToolsVisible;
+    syncMobilePlaylistToolsVisibility();
+  });
+  dom.customMobileToolsBtn?.addEventListener("click", () => {
+    mobileCustomToolsVisible = !mobileCustomToolsVisible;
+    syncMobilePlaylistToolsVisibility();
   });
   dom.queueToggleBtn.addEventListener("click", () => setQueueOpen(!queueOpen));
   dom.queueCloseBtn.addEventListener("click", () => setQueueOpen(false));
