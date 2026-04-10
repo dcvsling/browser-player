@@ -1,6 +1,19 @@
 import { APP_CONFIG } from "./config.js";
 
 const CLOUD_CACHE_VERSION = 2;
+const DEFAULT_SOURCE_ID = "onedrive-default";
+
+function createEmptyCloudCache() {
+  return {
+    tracks: [],
+    deltaLink: null,
+    latestModifiedAt: null,
+    latestItemId: null,
+    folderCTag: null,
+    lastSyncedAt: null,
+    version: CLOUD_CACHE_VERSION,
+  };
+}
 
 const defaultState = {
   prefs: {
@@ -45,18 +58,25 @@ const defaultState = {
       {
         id: "default",
         name: "我的清單",
-        trackIds: [],
+        tracks: [],
       },
     ],
   },
-  cloudCache: {
-    tracks: [],
-    deltaLink: null,
-    latestModifiedAt: null,
-    latestItemId: null,
-    folderCTag: null,
-    lastSyncedAt: null,
-    version: CLOUD_CACHE_VERSION,
+  sources: {
+    activeSourceId: DEFAULT_SOURCE_ID,
+    items: [
+      {
+        id: DEFAULT_SOURCE_ID,
+        name: "OneDrive",
+        type: "onedrive",
+        isDefault: true,
+        childrenEndpoint: APP_CONFIG.graph.childrenEndpoint,
+      },
+    ],
+    onedriveCaches: {
+      [DEFAULT_SOURCE_ID]: createEmptyCloudCache(),
+    },
+    localSources: {},
   },
 };
 
@@ -94,21 +114,12 @@ function mergeDefaults(input) {
       activeListId: input?.custom?.activeListId || defaultState.custom.activeListId,
       lists: normalizeLists(input?.custom?.lists),
     },
-    cloudCache: {
-      tracks: normalizeCloudTracks(input?.cloudCache?.tracks),
-      deltaLink: input?.cloudCache?.deltaLink || null,
-      latestModifiedAt: input?.cloudCache?.latestModifiedAt || null,
-      latestItemId: input?.cloudCache?.latestItemId || null,
-      folderCTag: input?.cloudCache?.folderCTag || null,
-      lastSyncedAt: input?.cloudCache?.lastSyncedAt || null,
-      version: Number.isFinite(Number(input?.cloudCache?.version))
-        ? Number(input.cloudCache.version)
-        : 1,
-    },
+    sources: normalizeSources(input),
   };
 }
 
 export { CLOUD_CACHE_VERSION };
+export { DEFAULT_SOURCE_ID };
 
 function normalizeListViewMode(value) {
   if (value && typeof value === "object") {
@@ -154,6 +165,7 @@ function normalizeLists(lists) {
     .map((item) => ({
       id: String(item.id),
       name: String(item.name),
+      tracks: normalizeCloudTracks(item.tracks),
       trackIds: Array.isArray(item.trackIds) ? item.trackIds.map(String) : [],
     }));
 
@@ -174,7 +186,104 @@ function normalizeCloudTracks(tracks) {
       durationMs: Number.isFinite(Number(item.durationMs)) ? Math.round(Number(item.durationMs)) : null,
       sizeBytes: Number.isFinite(Number(item.sizeBytes)) ? Math.round(Number(item.sizeBytes)) : null,
       source: "cloud",
+      sourceType: item.sourceType === "local" ? "local" : "onedrive",
+      sourceId: item.sourceId ? String(item.sourceId) : null,
       modifiedAt: item.modifiedAt ? String(item.modifiedAt) : null,
       driveId: item.driveId ? String(item.driveId) : null,
+      localSourceId: item.localSourceId ? String(item.localSourceId) : null,
+      localFileId: item.localFileId ? String(item.localFileId) : null,
     }));
+}
+
+function normalizeCloudCache(cache) {
+  return {
+    tracks: normalizeCloudTracks(cache?.tracks),
+    deltaLink: cache?.deltaLink || null,
+    latestModifiedAt: cache?.latestModifiedAt || null,
+    latestItemId: cache?.latestItemId || null,
+    folderCTag: cache?.folderCTag || null,
+    lastSyncedAt: cache?.lastSyncedAt || null,
+    version: Number.isFinite(Number(cache?.version))
+      ? Number(cache.version)
+      : CLOUD_CACHE_VERSION,
+  };
+}
+
+function normalizeSources(input) {
+  const fallback = structuredClone(defaultState.sources);
+  const incoming = input?.sources && typeof input.sources === "object" ? input.sources : {};
+
+  const rawItems = Array.isArray(incoming.items) && incoming.items.length > 0 ? incoming.items : fallback.items;
+  const seen = new Set();
+  const items = rawItems
+    .filter((source) => source && source.id && source.name && source.type)
+    .map((source) => ({
+      id: String(source.id),
+      name: String(source.name),
+      type: source.type === "local" ? "local" : "onedrive",
+      isDefault: Boolean(source.isDefault),
+      childrenEndpoint:
+        source.type === "onedrive"
+          ? String(source.childrenEndpoint || APP_CONFIG.graph.childrenEndpoint)
+          : null,
+      recursive: Boolean(source.recursive),
+    }))
+    .filter((source) => {
+      if (seen.has(source.id)) return false;
+      seen.add(source.id);
+      return true;
+    });
+
+  if (!items.some((source) => source.id === DEFAULT_SOURCE_ID)) {
+    items.unshift({
+      id: DEFAULT_SOURCE_ID,
+      name: "OneDrive",
+      type: "onedrive",
+      isDefault: true,
+      childrenEndpoint: APP_CONFIG.graph.childrenEndpoint,
+      recursive: false,
+    });
+  }
+
+  const activeSourceId = items.some((source) => source.id === incoming.activeSourceId)
+    ? String(incoming.activeSourceId)
+    : DEFAULT_SOURCE_ID;
+
+  const onedriveCaches = {};
+  const inputCaches = incoming.onedriveCaches && typeof incoming.onedriveCaches === "object"
+    ? incoming.onedriveCaches
+    : {};
+
+  const legacyCloudCache = input?.cloudCache ? normalizeCloudCache(input.cloudCache) : null;
+  for (const source of items) {
+    if (source.type !== "onedrive") continue;
+    if (source.id === DEFAULT_SOURCE_ID && legacyCloudCache) {
+      onedriveCaches[source.id] = legacyCloudCache;
+      continue;
+    }
+    onedriveCaches[source.id] = normalizeCloudCache(inputCaches[source.id] || createEmptyCloudCache());
+  }
+
+  const localSources = {};
+  const inputLocal = incoming.localSources && typeof incoming.localSources === "object" ? incoming.localSources : {};
+  for (const source of items) {
+    if (source.type !== "local") continue;
+    const localData = inputLocal[source.id] || {};
+    localSources[source.id] = {
+      tracks: normalizeCloudTracks(localData.tracks),
+      acceptedExt: Array.isArray(localData.acceptedExt) && localData.acceptedExt.length > 0
+        ? localData.acceptedExt.map((ext) => String(ext).toLowerCase())
+        : [".mp4"],
+      lastImportedAt: localData.lastImportedAt ? String(localData.lastImportedAt) : null,
+      recursive: Boolean(localData.recursive),
+      importMode: localData.importMode === "folder" ? "folder" : "files",
+    };
+  }
+
+  return {
+    activeSourceId,
+    items,
+    onedriveCaches,
+    localSources,
+  };
 }

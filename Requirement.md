@@ -8,6 +8,7 @@
 
 ## 2. 技術與部署需求
 - 使用 Vite 作為本機開發與正式打包工具。
+- 前端程式碼以 TypeScript 為主。
 - 支援 `npm run dev`、`npm run build`、`npm run preview`。
 - 本機 OAuth redirect URI 使用 `http://localhost:4200/auth`。
 - 路由採用 History API，不使用 `/#/`。
@@ -15,6 +16,10 @@
 - 部署流程需可直接使用 GitHub Actions 完成 build 與 GitHub Pages 部署，不依賴 Azure Static Web Apps deploy action 或 deployment token。
 - 需重新支援 PWA，可安裝為 Android 手機上的應用程式。
 - PWA 至少需包含 `manifest`、`service worker`、安裝能力與 app shell 快取。
+
+## 2.1 架構要求
+- 來源存取需有抽象層，避免 UI 層直接耦合 OneDrive / Local 差異。
+- 來源管理需模組化（來源狀態管理與來源存取流程分離）。
 
 ## 3. 驗證與雲端整合
 - 使用 MSAL Public Client + PKCE 完成登入。

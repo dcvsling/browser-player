@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { APP_CONFIG } from "./config.js";
 import { buildAppUrl, detectAppBasePath } from "./routing.js";
 
@@ -142,3 +143,6 @@ function resolveAuthorityTenant(rawTenantId) {
 function buildRedirectUri(path, basePath) {
   return `${window.location.origin}${buildAppUrl(path, basePath)}`;
 }
+
+
+

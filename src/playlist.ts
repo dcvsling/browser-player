@@ -1,5 +1,10 @@
-function createShuffleBag(length, currentIndex) {
-  const pool = [];
+﻿type TrackLike = {
+  id: string;
+  [key: string]: unknown;
+};
+
+function createShuffleBag(length: number, currentIndex: number): number[] {
+  const pool: number[] = [];
   for (let i = 0; i < length; i += 1) {
     if (i !== currentIndex) pool.push(i);
   }
@@ -11,16 +16,14 @@ function createShuffleBag(length, currentIndex) {
 }
 
 export class PlaylistController {
-  constructor() {
-    this.tracks = [];
-    this.currentIndex = -1;
-    this.shuffle = false;
-    this.repeatMode = "off";
-    this.shuffleBag = [];
-    this.history = [];
-  }
+  private tracks: TrackLike[] = [];
+  private currentIndex = -1;
+  private shuffle = false;
+  private repeatMode: "off" | "one" | "all" = "off";
+  private shuffleBag: number[] = [];
+  private history: number[] = [];
 
-  setTracks(tracks) {
+  setTracks(tracks: TrackLike[]): void {
     const nextTracks = Array.isArray(tracks) ? tracks : [];
     const changed = hasTrackChanged(this.tracks, nextTracks);
     this.tracks = nextTracks;
@@ -31,7 +34,7 @@ export class PlaylistController {
     }
   }
 
-  setCurrentById(id) {
+  setCurrentById(id: string): TrackLike | null {
     const idx = this.tracks.findIndex((track) => track.id === id);
     if (idx < 0) {
       this.currentIndex = -1;
@@ -46,7 +49,7 @@ export class PlaylistController {
     return this.getCurrent();
   }
 
-  setCurrentByIndex(index) {
+  setCurrentByIndex(index: number): TrackLike | null {
     if (index < 0 || index >= this.tracks.length) return null;
     if (index === this.currentIndex) return this.getCurrent();
     if (this.currentIndex >= 0) this.history.push(this.currentIndex);
@@ -55,14 +58,14 @@ export class PlaylistController {
     return this.getCurrent();
   }
 
-  getCurrent() {
+  getCurrent(): TrackLike | null {
     if (this.currentIndex < 0 || this.currentIndex >= this.tracks.length) {
       return null;
     }
     return this.tracks[this.currentIndex];
   }
 
-  toggleShuffle(forceValue) {
+  toggleShuffle(forceValue?: boolean): boolean {
     const nextValue = typeof forceValue === "boolean" ? forceValue : !this.shuffle;
     if (nextValue === this.shuffle) return this.shuffle;
     this.shuffle = nextValue;
@@ -71,20 +74,20 @@ export class PlaylistController {
     return this.shuffle;
   }
 
-  cycleRepeatMode() {
-    const modes = ["off", "one", "all"];
+  cycleRepeatMode(): "off" | "one" | "all" {
+    const modes: Array<"off" | "one" | "all"> = ["off", "one", "all"];
     const idx = modes.indexOf(this.repeatMode);
     this.repeatMode = modes[(idx + 1) % modes.length];
     return this.repeatMode;
   }
 
-  setRepeatMode(mode) {
+  setRepeatMode(mode: "off" | "one" | "all"): void {
     if (["off", "one", "all"].includes(mode)) {
       this.repeatMode = mode;
     }
   }
 
-  prev() {
+  prev(): TrackLike | null {
     if (this.tracks.length === 0) return null;
     if (this.shuffle) {
       const previousIndex = this.history.pop();
@@ -106,7 +109,7 @@ export class PlaylistController {
     return this.getCurrent();
   }
 
-  next() {
+  next(): TrackLike | null {
     if (this.tracks.length === 0) return null;
 
     if (this.repeatMode === "one" && this.currentIndex >= 0) {
@@ -142,14 +145,12 @@ export class PlaylistController {
     return this.getCurrent();
   }
 
-  resetShuffleBag() {
-    this.shuffleBag = this.shuffle
-      ? createShuffleBag(this.tracks.length, this.currentIndex)
-      : [];
+  private resetShuffleBag(): void {
+    this.shuffleBag = this.shuffle ? createShuffleBag(this.tracks.length, this.currentIndex) : [];
   }
 }
 
-function hasTrackChanged(prevTracks, nextTracks) {
+function hasTrackChanged(prevTracks: TrackLike[], nextTracks: TrackLike[]): boolean {
   if (prevTracks.length !== nextTracks.length) return true;
   for (let i = 0; i < prevTracks.length; i += 1) {
     if (prevTracks[i]?.id !== nextTracks[i]?.id) return true;

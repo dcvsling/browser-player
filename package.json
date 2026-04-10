@@ -9,6 +9,11 @@
     "preview": "vite preview --host localhost --port 4200"
   },
   "devDependencies": {
+    "typescript": "^6.0.2",
     "vite": "^7.1.3"
+  },
+  "dependencies": {
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2"
   }
 }

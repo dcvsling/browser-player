@@ -1,11 +1,13 @@
+﻿// @ts-nocheck
 import { APP_CONFIG } from "./config.js";
 
 const MAX_PAGE_FETCH = 5000;
 const DOWNLOAD_URL_FALLBACK_TTL_MS = 50 * 60 * 1000;
 const STREAM_URL_REFRESH_SKEW_MS = 15 * 1000;
 
-export async function fetchAllVideosViaDelta(accessToken, onProgress) {
-  const root = tryParseRootFromChildrenEndpoint(APP_CONFIG.graph.childrenEndpoint);
+export async function fetchAllVideosViaDelta(accessToken, onProgress, options = {}) {
+  const endpoint = String(options.childrenEndpoint || APP_CONFIG.graph.childrenEndpoint);
+  const root = tryParseRootFromChildrenEndpoint(endpoint);
   if (!root) {
     throw new Error("目前 childrenEndpoint 不支援 delta，同步將改用全量 children。");
   }
@@ -21,9 +23,10 @@ export async function fetchAllVideosViaDelta(accessToken, onProgress) {
   };
 }
 
-export async function fetchAllVideosViaChildren(accessToken, onProgress) {
-  const rootItems = await fetchAllPages(getRootChildrenUrl(), accessToken, onProgress);
-  const root = tryParseRootFromChildrenEndpoint(APP_CONFIG.graph.childrenEndpoint);
+export async function fetchAllVideosViaChildren(accessToken, onProgress, options = {}) {
+  const endpoint = String(options.childrenEndpoint || APP_CONFIG.graph.childrenEndpoint);
+  const rootItems = await fetchAllPages(getRootChildrenUrl(endpoint), accessToken, onProgress);
+  const root = tryParseRootFromChildrenEndpoint(endpoint);
   const driveId = root?.driveId || null;
   const queue = rootItems.map((item) => ({ item, depth: 0 }));
   const videos = new Map();
@@ -49,7 +52,7 @@ export async function fetchAllVideosViaChildren(accessToken, onProgress) {
       if (visitedFolders.has(folderKey)) continue;
       visitedFolders.add(folderKey);
 
-      const childrenUrl = buildChildrenUrl(item, driveId);
+      const childrenUrl = buildChildrenUrl(item, driveId, endpoint);
       const nested = await fetchAllPages(childrenUrl, accessToken, onProgress);
       nested.forEach((child) => queue.push({ item: child, depth: depth + 1 }));
     }
@@ -83,8 +86,9 @@ export async function fetchVideoDelta(accessToken, deltaLink, onProgress) {
   };
 }
 
-export async function fetchFolderMarker(accessToken) {
-  const root = tryParseRootFromChildrenEndpoint(APP_CONFIG.graph.childrenEndpoint);
+export async function fetchFolderMarker(accessToken, options = {}) {
+  const endpoint = String(options.childrenEndpoint || APP_CONFIG.graph.childrenEndpoint);
+  const root = tryParseRootFromChildrenEndpoint(endpoint);
   let url = "";
   if (root) {
     const { driveId, itemId } = root;
@@ -92,7 +96,7 @@ export async function fetchFolderMarker(accessToken) {
       driveId
     )}/items/${strictEncodePathSegment(itemId)}?$select=id,lastModifiedDateTime,cTag`;
   } else {
-    const itemUrl = getRootItemUrlFromChildrenEndpoint();
+    const itemUrl = getRootItemUrlFromChildrenEndpoint(endpoint);
     url = `${itemUrl}?$select=id,lastModifiedDateTime,cTag`;
   }
   const res = await fetch(url, {
@@ -112,11 +116,11 @@ export async function fetchFolderMarker(accessToken) {
 }
 
 export async function hydrateTrackStreamUrl(accessToken, track, options = {}) {
-  const { force = false } = options;
+  const { force = false, childrenEndpoint = APP_CONFIG.graph.childrenEndpoint } = options;
   if (!force && hasUsableStreamUrl(track)) return track;
   if (!track?.id) return track;
 
-  const root = tryParseRootFromChildrenEndpoint(APP_CONFIG.graph.childrenEndpoint);
+  const root = tryParseRootFromChildrenEndpoint(childrenEndpoint);
   const fallbackDriveId = root?.driveId || null;
   const driveId = track.driveId || fallbackDriveId;
   const url = driveId
@@ -394,21 +398,21 @@ function parseExpiryValue(value) {
   return null;
 }
 
-function buildChildrenUrl(item, fallbackDriveId) {
+function buildChildrenUrl(item, fallbackDriveId, endpoint) {
   const driveId = item?.parentReference?.driveId || fallbackDriveId;
   const itemId = item?.id;
-  if (!driveId || !itemId) return getRootChildrenUrl();
+  if (!driveId || !itemId) return getRootChildrenUrl(endpoint);
   return decorateChildrenUrl(`https://graph.microsoft.com/v1.0/drives/${strictEncodePathSegment(
     driveId
   )}/items/${strictEncodePathSegment(itemId)}/children`);
 }
 
-function getRootChildrenUrl() {
-  return decorateChildrenUrl(String(APP_CONFIG.graph.childrenEndpoint || "").trim());
+function getRootChildrenUrl(endpoint = APP_CONFIG.graph.childrenEndpoint) {
+  return decorateChildrenUrl(String(endpoint || "").trim());
 }
 
-function getRootItemUrlFromChildrenEndpoint() {
-  const children = getRootChildrenUrl();
+function getRootItemUrlFromChildrenEndpoint(endpoint = APP_CONFIG.graph.childrenEndpoint) {
+  const children = getRootChildrenUrl(endpoint);
   if (children.endsWith("/children")) {
     return children.slice(0, -"/children".length);
   }
@@ -451,3 +455,6 @@ async function toGraphError(prefix, response) {
   }
   return new Error(`${prefix}: ${response.status} ${response.statusText}${detail}`);
 }
+
+
+

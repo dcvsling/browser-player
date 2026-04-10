@@ -71,7 +71,7 @@
     <main class="layout">
       <section id="playerPanel" class="panel player-panel">
         <div class="video-wrap">
-          <video id="video" preload="metadata"></video>
+          <video id="video" preload="metadata" tabindex="0"></video>
           <div class="player-overlay top">
             <div class="player-head">
               <div class="player-meta">
@@ -200,7 +200,7 @@
 
       <section id="libraryPanel" class="panel library-panel">
         <div class="panel-head">
-          <h2>OneDrive 影片（mp4）</h2>
+          <h2>匯入來源影片</h2>
           <button
             id="cloudMobileToolsBtn"
             type="button"
@@ -212,6 +212,10 @@
             <span class="material-symbols-rounded" aria-hidden="true">tune</span>
           </button>
           <div class="head-actions">
+            <label class="sort-select" aria-label="匯入來源">
+              <span class="visually-hidden">匯入來源</span>
+              <select id="sourceSelect" title="匯入來源"></select>
+            </label>
             <label class="sort-select" aria-label="雲端清單排序欄位">
               <span class="visually-hidden">雲端清單排序欄位</span>
               <select id="cloudSortFieldSelect" title="排序欄位">
@@ -288,6 +292,27 @@
         </div>
         <div class="settings-grid">
           <section class="settings-card">
+            <h3>匯入來源</h3>
+            <div class="source-manager">
+              <label class="source-field">
+                <span>來源清單</span>
+                <select id="sourceManageSelect"></select>
+              </label>
+              <button id="deleteSourceBtn" type="button" class="icon-btn" aria-label="刪除來源" title="刪除來源">
+                <span class="material-symbols-rounded" aria-hidden="true">delete</span>
+              </button>
+            </div>
+            <div class="source-action-buttons">
+              <button id="openOnedriveSourceModalBtn" type="button" class="icon-btn" aria-label="新增 OneDrive 來源" title="新增 OneDrive 來源">
+                <span class="material-symbols-rounded" aria-hidden="true">cloud_upload</span>
+              </button>
+              <button id="openLocalSourceModalBtn" type="button" class="icon-btn" aria-label="新增本機來源" title="新增本機來源">
+                <span class="material-symbols-rounded" aria-hidden="true">upload_file</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="settings-card">
             <h3>快捷鍵</h3>
             <label class="setting-toggle">
               <input id="hotkeysToggle" type="checkbox" />
@@ -315,6 +340,60 @@
       </section>
     </main>
 
-    <script type="module" src="./src/app.js"></script>
+    <div id="onedriveSourceModal" class="source-modal-backdrop hidden" aria-hidden="true">
+      <section class="source-modal" role="dialog" aria-modal="true" aria-labelledby="onedriveModalTitle">
+        <h3 id="onedriveModalTitle">新增 OneDrive 來源</h3>
+        <div id="onedriveSourceError" class="source-error hidden" role="alert">來源不合法</div>
+        <label class="source-field">
+          <span>來源名稱</span>
+          <input id="newOnedriveNameInput" type="text" placeholder="例如：OneDrive 工作檔案" />
+        </label>
+        <label class="source-field">
+          <span>children URL</span>
+          <input
+            id="newOnedriveUrlInput"
+            type="url"
+            placeholder="https://graph.microsoft.com/v1.0/drives/{driveId}/items/{itemId}/children"
+          />
+        </label>
+        <div class="source-modal-actions">
+          <button id="cancelOnedriveSourceBtn" type="button">取消</button>
+          <button id="addOnedriveSourceBtn" type="button">新增</button>
+        </div>
+      </section>
+    </div>
+
+    <div id="localSourceModal" class="source-modal-backdrop hidden" aria-hidden="true">
+      <section class="source-modal" role="dialog" aria-modal="true" aria-labelledby="localModalTitle">
+        <h3 id="localModalTitle">新增本機來源</h3>
+        <div id="localSourceError" class="source-error hidden" role="alert">來源不合法</div>
+        <label class="source-field">
+          <span>來源名稱</span>
+          <input id="newLocalNameInput" type="text" placeholder="例如：本機影片" />
+        </label>
+        <div class="sync-info">使用系統對話框選擇檔案或資料夾</div>
+        <label class="setting-toggle">
+          <input id="localRecursiveToggle" type="checkbox" />
+          遞迴讀取子資料夾
+        </label>
+        <div class="source-buttons">
+          <button id="pickLocalFilesBtn" type="button" aria-label="選擇本機檔案" title="選擇本機檔案">
+            選擇檔案
+          </button>
+          <button id="pickLocalFolderBtn" type="button" aria-label="選擇本機資料夾" title="選擇本機資料夾">
+            選擇資料夾
+          </button>
+        </div>
+        <div id="localSelectionInfo" class="sync-info">尚未選擇本機檔案或資料夾</div>
+        <input id="localFilesInput" class="visually-hidden" type="file" accept=".mp4,video/mp4" multiple />
+        <input id="localFolderInput" class="visually-hidden" type="file" webkitdirectory directory multiple />
+        <div class="source-modal-actions">
+          <button id="cancelLocalSourceBtn" type="button">取消</button>
+          <button id="addLocalSourceBtn" type="button">新增</button>
+        </div>
+      </section>
+    </div>
+
+    <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

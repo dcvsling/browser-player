@@ -16,9 +16,14 @@ self.addEventListener("install", (event) => {
         new URL("icons/icon-192.png", scope).toString(),
         new URL("icons/icon-512.png", scope).toString(),
       ]);
-      await self.skipWaiting();
     })()
   );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener("activate", (event) => {

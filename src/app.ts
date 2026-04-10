@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { APP_CONFIG } from "./config.js";
 import { initAuth, login, logout, getAccessToken, getAccount } from "./auth.js";
 import {
@@ -17,7 +18,15 @@ import {
   resolveCurrentRoute,
   restoreGithubPagesRoute,
 } from "./routing.js";
-import { CLOUD_CACHE_VERSION, loadState, saveState } from "./storage.js";
+import { CLOUD_CACHE_VERSION, DEFAULT_SOURCE_ID, loadState, saveState } from "./storage.js";
+import { buildLocalSourceTracks } from "./local-media.js";
+import {
+  loadLocalRuntimeFile,
+  removeLocalRuntimeFilesBySource,
+  saveLocalRuntimeFile,
+} from "./local-runtime-cache.js";
+import { SourceAccessOrchestrator } from "./source-access.js";
+import { SourceManager } from "./source-manager.js";
 
 const state = loadState();
 const DEFAULT_HOTKEYS = {
@@ -33,7 +42,7 @@ const DEFAULT_HOTKEYS = {
   toggleFullscreen: "KeyF",
 };
 
-let cloudTracks = Array.isArray(state.cloudCache?.tracks) ? state.cloudCache.tracks : [];
+let cloudTracks = [];
 let isSyncing = false;
 let currentRoute = "/player";
 let queueOpen = false;
@@ -43,10 +52,15 @@ let isScrubbing = false;
 let capturingShortcutAction = null;
 let fullscreenControlsTimer = 0;
 let deferredInstallPrompt = null;
+let pwaUpdatePromptOpen = false;
+let pwaControllerChanged = false;
 let isMobileLayout = window.matchMedia("(max-width: 900px)").matches;
 let mobilePlayerChromeVisible = false;
 let mobileCloudToolsVisible = false;
 let mobileCustomToolsVisible = false;
+let pendingLocalFiles = [];
+let pendingLocalImportMode = "files";
+let openSourceModal = null;
 const appBasePath = detectAppBasePath(window.location.pathname);
 
 const dom = {
@@ -63,6 +77,7 @@ const dom = {
   loginBtn: document.getElementById("loginBtn"),
   logoutBtn: document.getElementById("logoutBtn"),
   refreshBtn: document.getElementById("refreshBtn"),
+  sourceSelect: document.getElementById("sourceSelect"),
   cloudSortFieldSelect: document.getElementById("cloudSortFieldSelect"),
   cloudSortDirectionBtn: document.getElementById("cloudSortDirectionBtn"),
   cloudViewModeBtn: document.getElementById("cloudViewModeBtn"),
@@ -111,6 +126,27 @@ const dom = {
   libraryPanel: document.getElementById("libraryPanel"),
   customPanel: document.getElementById("customPanel"),
   settingsPanel: document.getElementById("settingsPanel"),
+  sourceManageSelect: document.getElementById("sourceManageSelect"),
+  deleteSourceBtn: document.getElementById("deleteSourceBtn"),
+  openOnedriveSourceModalBtn: document.getElementById("openOnedriveSourceModalBtn"),
+  openLocalSourceModalBtn: document.getElementById("openLocalSourceModalBtn"),
+  onedriveSourceModal: document.getElementById("onedriveSourceModal"),
+  cancelOnedriveSourceBtn: document.getElementById("cancelOnedriveSourceBtn"),
+  onedriveSourceError: document.getElementById("onedriveSourceError"),
+  newOnedriveNameInput: document.getElementById("newOnedriveNameInput"),
+  newOnedriveUrlInput: document.getElementById("newOnedriveUrlInput"),
+  addOnedriveSourceBtn: document.getElementById("addOnedriveSourceBtn"),
+  localSourceModal: document.getElementById("localSourceModal"),
+  cancelLocalSourceBtn: document.getElementById("cancelLocalSourceBtn"),
+  localSourceError: document.getElementById("localSourceError"),
+  newLocalNameInput: document.getElementById("newLocalNameInput"),
+  localRecursiveToggle: document.getElementById("localRecursiveToggle"),
+  pickLocalFilesBtn: document.getElementById("pickLocalFilesBtn"),
+  pickLocalFolderBtn: document.getElementById("pickLocalFolderBtn"),
+  addLocalSourceBtn: document.getElementById("addLocalSourceBtn"),
+  localSelectionInfo: document.getElementById("localSelectionInfo"),
+  localFilesInput: document.getElementById("localFilesInput"),
+  localFolderInput: document.getElementById("localFolderInput"),
   shortcutInputs: {
     playPause: document.getElementById("shortcut-playPause"),
     seekBack: document.getElementById("shortcut-seekBack"),
@@ -127,6 +163,12 @@ const dom = {
 
 const playlist = new PlaylistController();
 const player = new Player(dom.video, dom.playerPanel);
+const sourceManager = new SourceManager({
+  state,
+  appConfig: APP_CONFIG,
+  defaultSourceId: DEFAULT_SOURCE_ID,
+  cloudCacheVersion: CLOUD_CACHE_VERSION,
+});
 const legacyCacheNamePatterns = [
   "browser-player",
   "workbox",
@@ -134,6 +176,75 @@ const legacyCacheNamePatterns = [
   "vite-pwa",
   "sw-cache",
 ];
+
+const sourceAccess = new SourceAccessOrchestrator({
+  getAccessToken,
+  hydrateTrackStreamUrl,
+  getLocalRuntimeFile: async (sourceId, fileId) => {
+    const cached = sourceManager.getRuntimeFile(sourceId, fileId);
+    if (cached) return cached;
+    const persisted = await loadLocalRuntimeFile(sourceId, fileId);
+    if (persisted) {
+      sourceManager.setRuntimeFile(sourceId, fileId, persisted);
+    }
+    return persisted;
+  },
+});
+
+function createEmptyCloudCache() {
+  return sourceManager.createEmptyCloudCache();
+}
+
+function ensureSourceState() {
+  sourceManager.ensureState();
+}
+
+function getSources() {
+  return sourceManager.getSources();
+}
+
+function getActiveSource() {
+  return sourceManager.getActiveSource();
+}
+
+function getCloudCacheForSource(sourceId) {
+  return sourceManager.getCloudCacheForSource(sourceId);
+}
+
+function getLocalDataForSource(sourceId) {
+  return sourceManager.getLocalDataForSource(sourceId);
+}
+
+function getActiveCloudCache() {
+  return sourceManager.getActiveCloudCache();
+}
+
+function withTrackSourceMetadata(track, source) {
+  if (!track || !source) return track;
+  const next = { ...track };
+  next.source = source.type === "local" ? "local" : "cloud";
+  next.sourceType = source.type;
+  next.sourceId = source.id;
+  if (source.type === "local") {
+    next.localSourceId = track.localSourceId || source.id;
+    next.streamUrl = "";
+    next.streamUrlExpiresAt = null;
+  }
+  return next;
+}
+
+function applySourceMetadataToTracks(tracks, source = getActiveSource()) {
+  if (!Array.isArray(tracks)) return [];
+  if (!source) return [...tracks];
+  return tracks.map((track) => withTrackSourceMetadata(track, source));
+}
+
+function rebuildActiveTracksFromSource() {
+  cloudTracks = applySourceMetadataToTracks(sourceManager.rebuildActiveTracksFromSource());
+}
+
+ensureSourceState();
+rebuildActiveTracksFromSource();
 
 function getWaitingTitle() {
   return "等待播放";
@@ -291,9 +402,47 @@ async function installApp() {
 async function registerPwa() {
   if (!("serviceWorker" in navigator)) return;
   try {
-    await navigator.serviceWorker.register(buildAppUrl("/sw.js", appBasePath), {
+    const registration = await navigator.serviceWorker.register(buildAppUrl("/sw.js", appBasePath), {
       scope: buildAppUrl("/", appBasePath),
     });
+
+    const askToActivateWaitingWorker = (worker) => {
+      if (!worker || pwaUpdatePromptOpen) return;
+      pwaUpdatePromptOpen = true;
+      const shouldUpdateNow = window.confirm("偵測到新版本，是否立即更新？");
+      pwaUpdatePromptOpen = false;
+      if (shouldUpdateNow) {
+        worker.postMessage({ type: "SKIP_WAITING" });
+      }
+    };
+
+    const promptIfWaiting = () => {
+      if (registration.waiting) {
+        askToActivateWaitingWorker(registration.waiting);
+      }
+    };
+
+    promptIfWaiting();
+
+    registration.addEventListener("updatefound", () => {
+      const installingWorker = registration.installing;
+      if (!installingWorker) return;
+      installingWorker.addEventListener("statechange", () => {
+        if (installingWorker.state !== "installed") return;
+        if (!navigator.serviceWorker.controller) return;
+        askToActivateWaitingWorker(registration.waiting || installingWorker);
+      });
+    });
+
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (pwaControllerChanged) return;
+      pwaControllerChanged = true;
+      window.location.reload();
+    });
+
+    window.setInterval(() => {
+      registration.update().catch(() => {});
+    }, 5 * 60 * 1000);
   } catch (error) {
     console.warn("PWA service worker 註冊失敗", error);
   }
@@ -348,16 +497,26 @@ function sortTracks(target, tracks) {
 }
 
 function resetCloudState() {
+  const source = getActiveSource();
   cloudTracks = [];
-  state.cloudCache = {
-    tracks: [],
-    deltaLink: null,
-    latestModifiedAt: null,
-    latestItemId: null,
-    folderCTag: null,
-    lastSyncedAt: null,
-    version: CLOUD_CACHE_VERSION,
-  };
+  if (source?.type === "onedrive") {
+    getCloudCacheForSource(source.id).tracks = [];
+    getCloudCacheForSource(source.id).deltaLink = null;
+    getCloudCacheForSource(source.id).latestModifiedAt = null;
+    getCloudCacheForSource(source.id).latestItemId = null;
+    getCloudCacheForSource(source.id).folderCTag = null;
+    getCloudCacheForSource(source.id).lastSyncedAt = null;
+    getCloudCacheForSource(source.id).version = CLOUD_CACHE_VERSION;
+  } else if (source?.type === "local") {
+    const local = getLocalDataForSource(source.id);
+    state.sources.localSources[source.id] = {
+      ...local,
+      tracks: [],
+      lastImportedAt: null,
+    };
+    sourceManager.clearRuntimeFiles(source.id);
+    removeLocalRuntimeFilesBySource(source.id).catch(() => {});
+  }
   state.playback.currentId = null;
   state.playback.currentTime = 0;
   dom.nowPlaying.textContent = "尚未選擇影片";
@@ -372,6 +531,10 @@ function normalizeCustomState() {
   if (!Array.isArray(state.custom.lists)) {
     state.custom.lists = [];
   }
+  state.custom.lists.forEach((list) => {
+    migrateLegacyListTracks(list);
+    if (!Array.isArray(list.tracks)) list.tracks = [];
+  });
 
   const hasSelected = state.custom.lists.some((item) => item.id === state.custom.selectedListId);
   if (!hasSelected) {
@@ -554,6 +717,12 @@ function renderRoute() {
   dom.navPlayerBtn.setAttribute("aria-pressed", String(isPlayer));
   dom.navPlaylistBtn.setAttribute("aria-pressed", String(isPlaylist));
   dom.navSettingsBtn.setAttribute("aria-pressed", String(isSettings));
+
+  if (isPlayer) {
+    window.requestAnimationFrame(() => {
+      dom.video.focus({ preventScroll: true });
+    });
+  }
 }
 
 function getSelectedList() {
@@ -561,15 +730,63 @@ function getSelectedList() {
   return state.custom.lists.find((item) => item.id === state.custom.selectedListId) || null;
 }
 
-function getCustomTrackObjects(list) {
-  const map = new Map(cloudTracks.map((track) => [track.id, track]));
-  return list.trackIds.map((id) => map.get(id)).filter(Boolean);
+function getTrackOriginKey(track) {
+  const sourceId = String(track?.sourceId || track?.localSourceId || "");
+  const trackId = String(track?.id || "");
+  return `${sourceId}::${trackId}`;
+}
+
+function findSourceById(sourceId) {
+  const id = String(sourceId || "");
+  if (!id) return null;
+  return getSources().find((source) => source.id === id) || null;
+}
+
+function findTrackFromSourceById(source, trackId) {
+  if (!source || !trackId) return null;
+  const list =
+    source.type === "onedrive"
+      ? getCloudCacheForSource(source.id).tracks
+      : getLocalDataForSource(source.id).tracks;
+  const found = list.find((track) => track.id === trackId);
+  return found ? withTrackSourceMetadata(found, source) : null;
+}
+
+function findTrackFromAnySource(trackId) {
+  for (const source of getSources()) {
+    const found = findTrackFromSourceById(source, trackId);
+    if (found) return found;
+  }
+  return null;
+}
+
+function migrateLegacyListTracks(list) {
+  if (!list || Array.isArray(list.tracks)) return;
+  const legacyIds = Array.isArray(list.trackIds) ? list.trackIds : [];
+  list.tracks = legacyIds
+    .map((trackId) => findTrackFromAnySource(trackId))
+    .filter(Boolean);
 }
 
 function getActiveTracks() {
   if (state.custom.activeListId === "cloud") return cloudTracks;
   const active = state.custom.lists.find((item) => item.id === state.custom.activeListId);
-  return active ? getCustomTrackObjects(active) : [];
+  if (!active) return [];
+  migrateLegacyListTracks(active);
+  return Array.isArray(active.tracks) ? active.tracks : [];
+}
+
+function createCustomTrackSnapshot(track) {
+  const activeSource = getActiveSource();
+  const sourceId = String(track?.sourceId || track?.localSourceId || activeSource?.id || "");
+  const source = findSourceById(sourceId) || activeSource;
+  if (!source) return null;
+  const snapshot = withTrackSourceMetadata(track, source);
+  if (snapshot.sourceType === "onedrive") {
+    snapshot.streamUrl = "";
+    snapshot.streamUrlExpiresAt = null;
+  }
+  return snapshot;
 }
 
 function toRepeatText(mode) {
@@ -605,7 +822,23 @@ function updateTrackDuration(trackId, durationSeconds) {
     return { ...track, durationMs };
   });
   if (!changed) return;
-  state.cloudCache.tracks = cloudTracks.map((track) => ({ ...track }));
+  const activeSource = getActiveSource();
+  const updatedTrack = cloudTracks.find((track) => track.id === trackId);
+  if (updatedTrack && activeSource) {
+    const originKey = getTrackOriginKey(updatedTrack);
+    state.custom.lists.forEach((list) => {
+      migrateLegacyListTracks(list);
+      list.tracks = (list.tracks || []).map((track) =>
+        getTrackOriginKey(track) === originKey ? { ...track, durationMs } : track
+      );
+    });
+  }
+  const source = getActiveSource();
+  if (source?.type === "onedrive") {
+    getCloudCacheForSource(source.id).tracks = cloudTracks.map((track) => ({ ...track }));
+  } else if (source?.type === "local") {
+    getLocalDataForSource(source.id).tracks = cloudTracks.map((track) => ({ ...track, streamUrl: "" }));
+  }
   saveState(state);
   renderCloudList();
   renderCustomTracks();
@@ -658,27 +891,330 @@ function renderAuth() {
   dom.accountAvatar.removeAttribute("src");
   dom.loginBtn.classList.toggle("hidden", Boolean(account));
   dom.logoutBtn.classList.toggle("hidden", !account);
-  dom.refreshBtn.classList.toggle("hidden", !account);
+  const activeSource = getActiveSource();
+  const isOnedrive = activeSource?.type === "onedrive";
+  dom.refreshBtn.classList.toggle("hidden", !account || !isOnedrive);
 }
 
 function renderSyncInfo() {
-  const cached = Array.isArray(state.cloudCache.tracks) ? state.cloudCache.tracks.length : 0;
-  const last = state.cloudCache.lastSyncedAt
-    ? new Date(state.cloudCache.lastSyncedAt).toLocaleString("zh-TW", { hour12: false })
+  const source = getActiveSource();
+  if (!source) {
+    dom.syncInfo.textContent = "目前沒有可用來源。";
+    return;
+  }
+
+  if (source.type === "local") {
+    const localData = getLocalDataForSource(source.id);
+    const cached = Array.isArray(localData.tracks) ? localData.tracks.length : 0;
+    const last = localData.lastImportedAt
+      ? new Date(localData.lastImportedAt).toLocaleString("zh-TW", { hour12: false })
+      : "尚未匯入";
+    dom.syncInfo.textContent = `來源: 本機 | 檔案數: ${cached} | 最後匯入: ${last}`;
+    return;
+  }
+
+  const cache = getCloudCacheForSource(source.id);
+  const cached = Array.isArray(cache.tracks) ? cache.tracks.length : 0;
+  const last = cache.lastSyncedAt
+    ? new Date(cache.lastSyncedAt).toLocaleString("zh-TW", { hour12: false })
     : "尚未同步";
-  dom.syncInfo.textContent =
-    `快取位置: localStorage(${APP_CONFIG.storageKey}) | 快取筆數: ${cached} | 最後同步: ${last}`;
+  dom.syncInfo.textContent = `來源: OneDrive | 快取筆數: ${cached} | 最後同步: ${last}`;
+}
+
+function renderSourceSelect() {
+  const sources = getSources();
+  if (!dom.sourceSelect) return;
+  dom.sourceSelect.innerHTML = "";
+  sources.forEach((source) => {
+    const opt = document.createElement("option");
+    opt.value = source.id;
+    opt.textContent = source.name;
+    if (source.id === state.sources.activeSourceId) opt.selected = true;
+    dom.sourceSelect.appendChild(opt);
+  });
+}
+
+function renderSourceSettings() {
+  const sources = getSources();
+  if (!dom.sourceManageSelect) return;
+  dom.sourceManageSelect.innerHTML = "";
+  sources.forEach((source) => {
+    const opt = document.createElement("option");
+    opt.value = source.id;
+    opt.textContent = `${source.name}${source.isDefault ? "（預設）" : ""}`;
+    if (source.id === state.sources.activeSourceId) opt.selected = true;
+    dom.sourceManageSelect.appendChild(opt);
+  });
+
+  const selectedId = dom.sourceManageSelect.value || state.sources.activeSourceId;
+  const selected = sources.find((item) => item.id === selectedId);
+  const cannotDelete = !selected || selected.isDefault || selected.id === state.sources.activeSourceId;
+  dom.deleteSourceBtn.disabled = cannotDelete;
+}
+
+function createInvalidSourceError(message = "來源不合法") {
+  const error = new Error(message);
+  error.name = "InvalidSourceError";
+  return error;
+}
+
+function setModalError(target, message) {
+  if (!target) return;
+  const hasMessage = Boolean(String(message || "").trim());
+  target.textContent = hasMessage ? String(message) : "來源不合法";
+  target.classList.toggle("hidden", !hasMessage);
+}
+
+function resetLocalSourceDraft() {
+  dom.newLocalNameInput.value = "";
+  dom.localRecursiveToggle.checked = false;
+  pendingLocalFiles = [];
+  pendingLocalImportMode = "files";
+  dom.localFilesInput.value = "";
+  dom.localFolderInput.value = "";
+  updateLocalSelectionInfo();
+}
+
+function setSourceModalVisible(modal, visible) {
+  if (!modal) return;
+  modal.classList.toggle("hidden", !visible);
+  modal.setAttribute("aria-hidden", String(!visible));
+}
+
+function openSourceModalByType(type) {
+  if (type === "onedrive") {
+    setModalError(dom.onedriveSourceError, "");
+    setSourceModalVisible(dom.onedriveSourceModal, true);
+    openSourceModal = "onedrive";
+    document.body.classList.add("modal-open");
+    dom.newOnedriveNameInput.focus();
+    return;
+  }
+  setModalError(dom.localSourceError, "");
+  setSourceModalVisible(dom.localSourceModal, true);
+  openSourceModal = "local";
+  document.body.classList.add("modal-open");
+  dom.newLocalNameInput.focus();
+}
+
+function closeSourceModalByType(type) {
+  if (type === "onedrive") {
+    setSourceModalVisible(dom.onedriveSourceModal, false);
+    setModalError(dom.onedriveSourceError, "");
+    dom.newOnedriveNameInput.value = "";
+    dom.newOnedriveUrlInput.value = "";
+  } else {
+    setSourceModalVisible(dom.localSourceModal, false);
+    setModalError(dom.localSourceError, "");
+    resetLocalSourceDraft();
+  }
+  openSourceModal = null;
+  document.body.classList.remove("modal-open");
+}
+
+async function activateSource(sourceId, { forceSync = false } = {}) {
+  if (!sourceId) return;
+  if (!getSources().some((source) => source.id === sourceId)) return;
+  sourceManager.setActiveSourceId(sourceId);
+  rebuildActiveTracksFromSource();
+  state.playback.currentId = null;
+  state.playback.currentTime = 0;
+  queueOpen = false;
+  dom.nowPlaying.textContent = "尚未選擇影片";
+  updatePlaybackProgress(0, 0);
+  renderSourceSelect();
+  renderSourceSettings();
+  persistAndRender();
+  if (getActiveSource()?.type === "onedrive" && !getAccount()) {
+    window.location.replace(APP_CONFIG.auth.redirectPath);
+    return;
+  }
+  await syncCloudVideos({ force: forceSync });
+}
+
+function validateOnedriveEndpoint(url) {
+  const raw = String(url || "").trim();
+  if (!raw) return false;
+  return /graph\.microsoft\.com\/v1\.0\/drives\/[^/]+\/items\/[^/]+\/children/i.test(raw);
+}
+
+async function addOnedriveSource() {
+  const name = String(dom.newOnedriveNameInput.value || "").trim();
+  const childrenEndpoint = String(dom.newOnedriveUrlInput.value || "").trim();
+  if (!name) {
+    throw createInvalidSourceError();
+  }
+  if (!validateOnedriveEndpoint(childrenEndpoint)) {
+    throw createInvalidSourceError();
+  }
+
+  try {
+    const token = await getAccessToken();
+    await fetchFolderMarker(token, { childrenEndpoint });
+  } catch {
+    throw createInvalidSourceError();
+  }
+
+  const id = `onedrive-${Date.now()}`;
+  sourceManager.addSource({
+    id,
+    name,
+    type: "onedrive",
+    isDefault: false,
+    childrenEndpoint,
+  });
+  dom.newOnedriveNameInput.value = "";
+  dom.newOnedriveUrlInput.value = "";
+  await activateSource(id, { forceSync: true });
+  return id;
+}
+
+function updateLocalSelectionInfo() {
+  const count = pendingLocalFiles.length;
+  const modeText = pendingLocalImportMode === "folder" ? "資料夾" : "檔案";
+  dom.localSelectionInfo.textContent =
+    count > 0 ? `已選擇 ${count} 個${modeText}項目` : "尚未選擇本機檔案或資料夾";
+}
+
+async function persistLocalRuntimeFiles(sourceId, runtimeFiles) {
+  const tasks = [];
+  runtimeFiles.forEach((file, fileId) => {
+    tasks.push(saveLocalRuntimeFile(sourceId, fileId, file));
+  });
+  await Promise.all(tasks);
+}
+
+async function collectFilesFromDirectoryHandle(directoryHandle, recursive) {
+  const files = [];
+  for await (const [, handle] of directoryHandle.entries()) {
+    if (handle.kind === "file") {
+      files.push(await handle.getFile());
+      continue;
+    }
+    if (recursive && handle.kind === "directory") {
+      const nested = await collectFilesFromDirectoryHandle(handle, recursive);
+      files.push(...nested);
+    }
+  }
+  return files;
+}
+
+async function pickLocalFilesFromDialog() {
+  if (window.showOpenFilePicker) {
+    const handles = await window.showOpenFilePicker({
+      multiple: true,
+      types: [
+        {
+          description: "MP4 影片",
+          accept: {
+            "video/mp4": [".mp4"],
+          },
+        },
+      ],
+      excludeAcceptAllOption: false,
+    });
+    const files = await Promise.all(handles.map((handle) => handle.getFile()));
+    pendingLocalImportMode = "files";
+    pendingLocalFiles = files;
+    updateLocalSelectionInfo();
+    return;
+  }
+  dom.localFilesInput.click();
+}
+
+async function pickLocalFolderFromDialog() {
+  if (window.showDirectoryPicker) {
+    const handle = await window.showDirectoryPicker();
+    const recursive = Boolean(dom.localRecursiveToggle.checked);
+    const files = await collectFilesFromDirectoryHandle(handle, recursive);
+    pendingLocalImportMode = "folder";
+    pendingLocalFiles = files;
+    updateLocalSelectionInfo();
+    return;
+  }
+  dom.localFolderInput.click();
+}
+
+async function addLocalSource() {
+  const name = String(dom.newLocalNameInput.value || "").trim();
+  if (!name) {
+    throw createInvalidSourceError();
+  }
+  if (!pendingLocalFiles.length) {
+    throw createInvalidSourceError();
+  }
+
+  setLoading(true, "分析本機來源中...");
+  try {
+    const sourceId = `local-${Date.now()}`;
+    const acceptedExt = [".mp4"];
+    const recursive = Boolean(dom.localRecursiveToggle.checked);
+    const files = recursive
+      ? pendingLocalFiles
+      : pendingLocalFiles.filter((file) => String(file.webkitRelativePath || "").split("/").length <= 2);
+
+    const { tracks, runtimeFiles } = await buildLocalSourceTracks({
+      sourceId,
+      files,
+      acceptedExt,
+      onProgress: (progress) => setLoading(true, progress.message),
+    });
+    if (!tracks.length) {
+      throw createInvalidSourceError();
+    }
+
+    sourceManager.addSource({
+      id: sourceId,
+      name,
+      type: "local",
+      isDefault: false,
+      childrenEndpoint: null,
+      recursive,
+    });
+    getLocalDataForSource(sourceId).tracks = tracks;
+    getLocalDataForSource(sourceId).acceptedExt = acceptedExt;
+    getLocalDataForSource(sourceId).lastImportedAt = new Date().toISOString();
+    getLocalDataForSource(sourceId).recursive = recursive;
+    getLocalDataForSource(sourceId).importMode = pendingLocalImportMode;
+    sourceManager.setRuntimeFiles(sourceId, runtimeFiles);
+    await persistLocalRuntimeFiles(sourceId, runtimeFiles);
+
+    resetLocalSourceDraft();
+    await activateSource(sourceId);
+    return sourceId;
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function deleteSelectedSource() {
+  const deletingId = String(dom.sourceManageSelect.value || "");
+  const source = getSources().find((item) => item.id === deletingId);
+  if (!source) return;
+  if (source.isDefault || source.id === state.sources.activeSourceId) {
+    window.alert("目前來源不可刪除。");
+    return;
+  }
+
+  sourceManager.removeSource(deletingId);
+  if (source.type === "local") {
+    removeLocalRuntimeFilesBySource(deletingId).catch(() => {});
+  }
+  renderSourceSelect();
+  renderSourceSettings();
+  saveState(state);
 }
 
 function renderListLabels() {
+  const sourceName = getActiveSource()?.name || "來源清單";
   const activeText =
     state.custom.activeListId === "cloud"
-      ? "雲端清單"
+      ? sourceName
       : state.custom.lists.find((item) => item.id === state.custom.activeListId)?.name || "未指定";
   const editing = getSelectedList();
   dom.activeListLabel.textContent = `播放器清單：${activeText}`;
   dom.editingListLabel.textContent =
-    `正在編輯：${editing?.name || "未選擇"}（請在左側雲端清單點「加入」）`;
+    `正在編輯：${editing?.name || "未選擇"}（可從任一匯入來源點「加入」）`;
   updateAppTitle();
 }
 
@@ -718,12 +1254,13 @@ function createTrackMeta(track) {
 function renderCloudList() {
   dom.cloudList.innerHTML = "";
   if (cloudTracks.length === 0) {
-    dom.cloudList.innerHTML = "<li>目前沒有可播放的 mp4。</li>";
+    dom.cloudList.innerHTML = "<li>目前來源沒有可播放的 mp4。</li>";
     return;
   }
 
   const editing = getSelectedList();
-  const editingIds = new Set(editing?.trackIds || []);
+  if (editing) migrateLegacyListTracks(editing);
+  const editingIds = new Set((editing?.tracks || []).map((track) => getTrackOriginKey(track)));
   sortTracks("cloud", cloudTracks).forEach((track) => {
     const li = document.createElement("li");
     if (state.playback.currentId === track.id) li.classList.add("active");
@@ -732,10 +1269,13 @@ function renderCloudList() {
 
     const thumb = createThumb(track);
     const meta = createTrackMeta(track);
+    const originKey = getTrackOriginKey(track);
     const action = () => {
       if (currentRoute === "/playlist" && editing) {
-        if (!editingIds.has(track.id)) {
-          editing.trackIds.push(track.id);
+        if (!editingIds.has(originKey)) {
+          const snapshot = createCustomTrackSnapshot(track);
+          if (!snapshot) return;
+          editing.tracks.push(snapshot);
           persistAndRender();
         }
       } else {
@@ -743,7 +1283,7 @@ function renderCloudList() {
       }
     };
     if (currentRoute === "/playlist" && editing) {
-      const inList = editingIds.has(track.id);
+      const inList = editingIds.has(originKey);
       li.classList.toggle("in-list", inList);
       li.setAttribute("aria-label", `${track.name}，${inList ? "已加入目前清單" : "點擊加入"}`);
     } else {
@@ -793,7 +1333,8 @@ function renderCustomTracks() {
     return;
   }
 
-  const tracks = getCustomTrackObjects(selected);
+  migrateLegacyListTracks(selected);
+  const tracks = Array.isArray(selected.tracks) ? selected.tracks : [];
   if (tracks.length === 0) {
     dom.customTracks.innerHTML = "<li>此清單目前沒有影片。</li>";
     return;
@@ -808,7 +1349,8 @@ function renderCustomTracks() {
     const thumb = createThumb(track);
     const meta = createTrackMeta(track);
     const action = () => {
-      selected.trackIds = selected.trackIds.filter((id) => id !== track.id);
+      const targetKey = getTrackOriginKey(track);
+      selected.tracks = selected.tracks.filter((item) => getTrackOriginKey(item) !== targetKey);
       persistAndRender();
     };
     li.setAttribute("aria-label", `${track.name}，點擊移除`);
@@ -853,8 +1395,19 @@ function renderQueueList() {
 
 function persistAndRender() {
   normalizeCustomState();
-  state.cloudCache.tracks = cloudTracks.map((track) => ({ ...track }));
+  state.custom.lists.forEach((list) => {
+    migrateLegacyListTracks(list);
+    delete list.trackIds;
+  });
+  const source = getActiveSource();
+  if (source?.type === "onedrive") {
+    getCloudCacheForSource(source.id).tracks = cloudTracks.map((track) => ({ ...track }));
+  } else if (source?.type === "local") {
+    getLocalDataForSource(source.id).tracks = cloudTracks.map((track) => ({ ...track, streamUrl: "" }));
+  }
   saveState(state);
+  renderSourceSelect();
+  renderSourceSettings();
   renderCloudList();
   renderSyncInfo();
   renderCustomListSelect();
@@ -903,9 +1456,23 @@ async function startPlayback(trackId, fromTime = 0, opts = {}) {
   let playable = current;
   try {
     setInlineLoading(showInlineLoading, "讀取影片中...");
-    const token = await getAccessToken();
-    playable = await hydrateTrackStreamUrl(token, current, { force: forceRefresh });
-    cacheHydratedTrack(playable);
+    const targetSourceId = current?.sourceId || current?.localSourceId;
+    const targetSource =
+      findSourceById(targetSourceId) ||
+      getActiveSource() || {
+        id: DEFAULT_SOURCE_ID,
+        type: "onedrive",
+        childrenEndpoint: APP_CONFIG.graph.childrenEndpoint,
+      };
+    const sourceTrack =
+      findTrackFromSourceById(targetSource, current.id) ||
+      withTrackSourceMetadata(current, targetSource);
+    playable = await sourceAccess.resolvePlayableTrack(targetSource, sourceTrack, {
+      forceRefresh: forceRefresh,
+    });
+    if (targetSource?.type !== "local") {
+      cacheHydratedTrackForSource(targetSource.id, playable);
+    }
   } catch (error) {
     if (!silentError) console.error(error);
     if (!silentError) window.alert(`無法播放此影片：${error.message}`);
@@ -931,6 +1498,37 @@ async function startPlayback(trackId, fromTime = 0, opts = {}) {
   } catch {
     // user gesture restriction
   }
+}
+
+function cacheHydratedTrackForSource(sourceId, track) {
+  if (!track?.id || !sourceId) return;
+  const source = findSourceById(sourceId);
+  if (!source || source.type !== "onedrive") return;
+  const cache = getCloudCacheForSource(source.id);
+  const next = cache.tracks.map((item) => (item.id === track.id ? { ...item, ...track } : item));
+  const hasMatch = next.some((item) => item.id === track.id);
+  if (hasMatch) {
+    cache.tracks = next;
+  }
+  if (source.id === state.sources.activeSourceId) {
+    cloudTracks = applySourceMetadataToTracks(cache.tracks, source);
+  }
+  state.custom.lists.forEach((list) => {
+    migrateLegacyListTracks(list);
+    list.tracks = (list.tracks || []).map((item) => {
+      const sameSource = String(item?.sourceId || "") === String(sourceId);
+      if (!sameSource || item.id !== track.id) return item;
+      return {
+        ...item,
+        streamUrl: "",
+        streamUrlExpiresAt: null,
+        durationMs: track.durationMs ?? item.durationMs ?? null,
+        sizeBytes: track.sizeBytes ?? item.sizeBytes ?? null,
+        modifiedAt: track.modifiedAt ?? item.modifiedAt ?? null,
+        driveId: track.driveId ?? item.driveId ?? null,
+      };
+    });
+  });
 }
 
 async function playNext() {
@@ -967,17 +1565,33 @@ async function recoverCurrentPlayback() {
 }
 
 async function syncCloudVideos({ force = false } = {}) {
+  const activeSource = getActiveSource();
+  if (!activeSource) {
+    cloudTracks = [];
+    persistAndRender();
+    return;
+  }
+  if (activeSource.type !== "onedrive") {
+    cloudTracks = applySourceMetadataToTracks(getLocalDataForSource(activeSource.id).tracks, activeSource);
+    state.playback.currentId = cloudTracks[0]?.id || null;
+    state.playback.currentTime = 0;
+    persistAndRender();
+    return;
+  }
+
+  const sourceEndpoint = activeSource.childrenEndpoint || APP_CONFIG.graph.childrenEndpoint;
+  const sourceCache = getCloudCacheForSource(activeSource.id);
   setLoading(true, "檢查雲端清單中...");
   try {
     const token = await getAccessToken();
     const requireMetadataRefresh = needsCloudCacheUpgrade();
 
-    if (!force && !requireMetadataRefresh && cloudTracks.length > 0 && state.cloudCache.folderCTag) {
+    if (!force && !requireMetadataRefresh && cloudTracks.length > 0 && sourceCache.folderCTag) {
       try {
-        const marker = await fetchFolderMarker(token);
-        const sameFolder = marker.cTag && marker.cTag === state.cloudCache.folderCTag;
+        const marker = await fetchFolderMarker(token, { childrenEndpoint: sourceEndpoint });
+        const sameFolder = marker.cTag && marker.cTag === sourceCache.folderCTag;
         if (sameFolder) {
-          state.cloudCache.lastSyncedAt = new Date().toISOString();
+          sourceCache.lastSyncedAt = new Date().toISOString();
           persistAndRender();
           return;
         }
@@ -986,16 +1600,16 @@ async function syncCloudVideos({ force = false } = {}) {
       }
     }
 
-    if (!force && !requireMetadataRefresh && state.cloudCache.deltaLink) {
+    if (!force && !requireMetadataRefresh && sourceCache.deltaLink) {
       try {
         setLoading(true, "比對最新檔案與變更中...");
-        const delta = await fetchVideoDelta(token, state.cloudCache.deltaLink, (progress) => {
+        const delta = await fetchVideoDelta(token, sourceCache.deltaLink, (progress) => {
           setLoading(true, `比對中... ${progress.message}`);
         });
 
-        state.cloudCache.deltaLink = delta.deltaLink;
+        sourceCache.deltaLink = delta.deltaLink;
         if (delta.changedVideos.length === 0 && delta.deletedIds.length === 0) {
-          state.cloudCache.lastSyncedAt = new Date().toISOString();
+          sourceCache.lastSyncedAt = new Date().toISOString();
           persistAndRender();
           return;
         }
@@ -1010,19 +1624,22 @@ async function syncCloudVideos({ force = false } = {}) {
           map.set(track.id, mergeTrackWithCache(track, cached));
         });
         delta.deletedIds.forEach((id) => map.delete(id));
-        cloudTracks = [...map.values()].sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
+        cloudTracks = applySourceMetadataToTracks(
+          [...map.values()].sort((a, b) => a.name.localeCompare(b.name, "zh-Hant")),
+          activeSource
+        );
 
         const latest = computeLatest(cloudTracks);
-        state.cloudCache.latestModifiedAt = latest.latestModifiedAt;
-        state.cloudCache.latestItemId = latest.latestItemId;
-        state.cloudCache.version = CLOUD_CACHE_VERSION;
+        sourceCache.latestModifiedAt = latest.latestModifiedAt;
+        sourceCache.latestItemId = latest.latestItemId;
+        sourceCache.version = CLOUD_CACHE_VERSION;
         try {
-          const marker = await fetchFolderMarker(token);
-          state.cloudCache.folderCTag = marker.cTag || null;
+          const marker = await fetchFolderMarker(token, { childrenEndpoint: sourceEndpoint });
+          sourceCache.folderCTag = marker.cTag || null;
         } catch {
           // marker 失敗不阻斷同步
         }
-        state.cloudCache.lastSyncedAt = new Date().toISOString();
+        sourceCache.lastSyncedAt = new Date().toISOString();
         ensurePlaybackTarget();
         persistAndRender();
         return;
@@ -1031,31 +1648,34 @@ async function syncCloudVideos({ force = false } = {}) {
           throw error;
         }
         console.warn("deltaLink 失效，改走完整重建", error);
-        state.cloudCache.deltaLink = null;
+        sourceCache.deltaLink = null;
       }
     }
 
-    if (!state.cloudCache.deltaLink) {
+    if (!sourceCache.deltaLink) {
       try {
         setLoading(true, "首次整理雲端清單中...");
         const full = await fetchAllVideosViaDelta(token, (progress) => {
           setLoading(true, `首次整理中... ${progress.message}`);
-        });
+        }, { childrenEndpoint: sourceEndpoint });
         const existingMap = new Map(cloudTracks.map((track) => [track.id, track]));
-        cloudTracks = full.tracks
-          .map((track) => mergeTrackWithCache(track, existingMap.get(track.id)))
-          .sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
-        state.cloudCache.deltaLink = full.deltaLink;
-        state.cloudCache.latestModifiedAt = full.latest.latestModifiedAt;
-        state.cloudCache.latestItemId = full.latest.latestItemId;
-        state.cloudCache.version = CLOUD_CACHE_VERSION;
+        cloudTracks = applySourceMetadataToTracks(
+          full.tracks
+            .map((track) => mergeTrackWithCache(track, existingMap.get(track.id)))
+            .sort((a, b) => a.name.localeCompare(b.name, "zh-Hant")),
+          activeSource
+        );
+        sourceCache.deltaLink = full.deltaLink;
+        sourceCache.latestModifiedAt = full.latest.latestModifiedAt;
+        sourceCache.latestItemId = full.latest.latestItemId;
+        sourceCache.version = CLOUD_CACHE_VERSION;
         try {
-          const marker = await fetchFolderMarker(token);
-          state.cloudCache.folderCTag = marker.cTag || null;
+          const marker = await fetchFolderMarker(token, { childrenEndpoint: sourceEndpoint });
+          sourceCache.folderCTag = marker.cTag || null;
         } catch {
-          state.cloudCache.folderCTag = null;
+          sourceCache.folderCTag = null;
         }
-        state.cloudCache.lastSyncedAt = new Date().toISOString();
+        sourceCache.lastSyncedAt = new Date().toISOString();
         ensurePlaybackTarget();
         persistAndRender();
         return;
@@ -1067,32 +1687,35 @@ async function syncCloudVideos({ force = false } = {}) {
     setLoading(true, "重建雲端清單中...");
     const tracks = await fetchAllVideosViaChildren(token, (progress) => {
       setLoading(true, `重建清單中... ${progress.message}`);
-    });
+    }, { childrenEndpoint: sourceEndpoint });
     const existingMap = new Map(cloudTracks.map((track) => [track.id, track]));
-    cloudTracks = tracks
-      .map((track) => mergeTrackWithCache(track, existingMap.get(track.id)))
-      .sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
+    cloudTracks = applySourceMetadataToTracks(
+      tracks
+        .map((track) => mergeTrackWithCache(track, existingMap.get(track.id)))
+        .sort((a, b) => a.name.localeCompare(b.name, "zh-Hant")),
+      activeSource
+    );
     try {
-      const full = await fetchAllVideosViaDelta(token, () => {});
-      state.cloudCache.deltaLink = full.deltaLink;
+      const full = await fetchAllVideosViaDelta(token, () => {}, { childrenEndpoint: sourceEndpoint });
+      sourceCache.deltaLink = full.deltaLink;
     } catch (error) {
       const msg = String(error?.message || "");
       if (!msg.includes("不支援 delta")) {
         console.warn("delta 初始化失敗，將僅使用 children 同步", error);
       }
-      state.cloudCache.deltaLink = null;
+      sourceCache.deltaLink = null;
     }
     const latest = computeLatest(cloudTracks);
-    state.cloudCache.latestModifiedAt = latest.latestModifiedAt;
-    state.cloudCache.latestItemId = latest.latestItemId;
-    state.cloudCache.version = CLOUD_CACHE_VERSION;
+    sourceCache.latestModifiedAt = latest.latestModifiedAt;
+    sourceCache.latestItemId = latest.latestItemId;
+    sourceCache.version = CLOUD_CACHE_VERSION;
     try {
-      const marker = await fetchFolderMarker(token);
-      state.cloudCache.folderCTag = marker.cTag || null;
+      const marker = await fetchFolderMarker(token, { childrenEndpoint: sourceEndpoint });
+      sourceCache.folderCTag = marker.cTag || null;
     } catch {
-      state.cloudCache.folderCTag = null;
+      sourceCache.folderCTag = null;
     }
-    state.cloudCache.lastSyncedAt = new Date().toISOString();
+    sourceCache.lastSyncedAt = new Date().toISOString();
     ensurePlaybackTarget();
     persistAndRender();
   } finally {
@@ -1111,15 +1734,8 @@ function ensurePlaybackTarget() {
   }
 }
 
-function cacheHydratedTrack(track) {
-  if (!track?.id) return;
-  const next = cloudTracks.map((item) => (item.id === track.id ? { ...item, ...track } : item));
-  const hasMatch = next.some((item) => item.id === track.id);
-  cloudTracks = hasMatch ? next : cloudTracks;
-}
-
 function needsCloudCacheUpgrade() {
-  return Number(state.cloudCache?.version || 1) < CLOUD_CACHE_VERSION;
+  return Number(getActiveCloudCache()?.version || 1) < CLOUD_CACHE_VERSION;
 }
 
 function mergeTrackWithCache(track, cached) {
@@ -1231,9 +1847,10 @@ function bindHotkeys() {
 
 function setAuthControlsEnabled(enabled) {
   const allow = Boolean(enabled) && !isSyncing;
+  const activeSource = getActiveSource();
   dom.loginBtn.disabled = !allow;
   dom.logoutBtn.disabled = !allow;
-  dom.refreshBtn.disabled = !allow;
+  dom.refreshBtn.disabled = !allow || activeSource?.type !== "onedrive";
 }
 
 function bindShortcutEditors() {
@@ -1294,6 +1911,89 @@ function bindEvents() {
   dom.navPlayerBtn.addEventListener("click", () => updateRoute("/player"));
   dom.navPlaylistBtn.addEventListener("click", () => updateRoute("/playlist"));
   dom.navSettingsBtn.addEventListener("click", () => updateRoute("/settings"));
+  dom.sourceSelect?.addEventListener("change", async () => {
+    try {
+      await activateSource(dom.sourceSelect.value);
+      renderAuth();
+    } catch (error) {
+      console.error(error);
+      window.alert(`切換來源失敗：${error.message}`);
+    }
+  });
+  dom.sourceManageSelect?.addEventListener("change", () => renderSourceSettings());
+  dom.deleteSourceBtn?.addEventListener("click", () => deleteSelectedSource());
+  dom.openOnedriveSourceModalBtn?.addEventListener("click", () => openSourceModalByType("onedrive"));
+  dom.openLocalSourceModalBtn?.addEventListener("click", () => openSourceModalByType("local"));
+  dom.cancelOnedriveSourceBtn?.addEventListener("click", () => closeSourceModalByType("onedrive"));
+  dom.cancelLocalSourceBtn?.addEventListener("click", () => closeSourceModalByType("local"));
+  dom.onedriveSourceModal?.addEventListener("click", (event) => {
+    if (event.target === dom.onedriveSourceModal) {
+      closeSourceModalByType("onedrive");
+    }
+  });
+  dom.localSourceModal?.addEventListener("click", (event) => {
+    if (event.target === dom.localSourceModal) {
+      closeSourceModalByType("local");
+    }
+  });
+  dom.addOnedriveSourceBtn?.addEventListener("click", async () => {
+    setModalError(dom.onedriveSourceError, "");
+    try {
+      await addOnedriveSource();
+      closeSourceModalByType("onedrive");
+      renderAuth();
+    } catch (error) {
+      console.error(error);
+      if (String(error?.name || "") === "InvalidSourceError") {
+        setModalError(dom.onedriveSourceError, "來源不合法");
+        return;
+      }
+      setModalError(dom.onedriveSourceError, "來源不合法");
+    }
+  });
+  dom.pickLocalFilesBtn?.addEventListener("click", async () => {
+    try {
+      await pickLocalFilesFromDialog();
+    } catch (error) {
+      if (String(error?.name || "") === "AbortError") return;
+      console.error(error);
+      window.alert(`選擇本機檔案失敗：${error.message}`);
+    }
+  });
+  dom.pickLocalFolderBtn?.addEventListener("click", async () => {
+    try {
+      await pickLocalFolderFromDialog();
+    } catch (error) {
+      if (String(error?.name || "") === "AbortError") return;
+      console.error(error);
+      window.alert(`選擇本機資料夾失敗：${error.message}`);
+    }
+  });
+  dom.localFilesInput?.addEventListener("change", () => {
+    pendingLocalImportMode = "files";
+    pendingLocalFiles = Array.from(dom.localFilesInput.files || []);
+    updateLocalSelectionInfo();
+  });
+  dom.localFolderInput?.addEventListener("change", () => {
+    pendingLocalImportMode = "folder";
+    pendingLocalFiles = Array.from(dom.localFolderInput.files || []);
+    updateLocalSelectionInfo();
+  });
+  dom.addLocalSourceBtn?.addEventListener("click", async () => {
+    setModalError(dom.localSourceError, "");
+    try {
+      await addLocalSource();
+      closeSourceModalByType("local");
+      renderAuth();
+    } catch (error) {
+      console.error(error);
+      if (String(error?.name || "") === "InvalidSourceError") {
+        setModalError(dom.localSourceError, "來源不合法");
+        return;
+      }
+      setModalError(dom.localSourceError, "來源不合法");
+    }
+  });
   dom.installAppBtn.addEventListener("click", () => installApp());
   dom.mobileMenuBtn.addEventListener("click", () => {
     setMobilePlayerChromeVisible(!mobilePlayerChromeVisible);
@@ -1308,6 +2008,14 @@ function bindEvents() {
   });
   dom.queueToggleBtn.addEventListener("click", () => setQueueOpen(!queueOpen));
   dom.queueCloseBtn.addEventListener("click", () => setQueueOpen(false));
+  window.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !openSourceModal) return;
+    if (openSourceModal === "onedrive") {
+      closeSourceModalByType("onedrive");
+      return;
+    }
+    closeSourceModalByType("local");
+  });
   window.addEventListener("popstate", () => updateRoute(resolveCurrentRoute(window.location.pathname, appBasePath), true));
   window.matchMedia("(max-width: 900px)").addEventListener("change", () => applyMobileLayoutState());
   ["pointermove", "pointerdown", "touchstart"].forEach((eventName) => {
@@ -1423,7 +2131,7 @@ function bindEvents() {
     const name = window.prompt("請輸入新清單名稱");
     if (!name) return;
     const id = `list-${Date.now()}`;
-    state.custom.lists.push({ id, name, trackIds: [] });
+    state.custom.lists.push({ id, name, tracks: [] });
     state.custom.selectedListId = id;
     persistAndRender();
   });
@@ -1516,15 +2224,23 @@ async function bootstrap() {
     restoreGithubPagesRoute(appBasePath) || resolveCurrentRoute(window.location.pathname, appBasePath),
     true
   );
+  renderSourceSelect();
+  renderSourceSettings();
+  updateLocalSelectionInfo();
   syncPlayerPrefs();
   setAuthControlsEnabled(false);
-  try {
-    await initAuth();
-  } finally {
+  const activeSource = getActiveSource();
+  if (activeSource?.type === "onedrive") {
+    try {
+      await initAuth();
+    } finally {
+      setAuthControlsEnabled(true);
+    }
+  } else {
     setAuthControlsEnabled(true);
   }
 
-  if (!getAccount()) {
+  if (activeSource?.type === "onedrive" && !getAccount()) {
     window.location.replace(APP_CONFIG.auth.redirectPath);
     return;
   }
@@ -1538,7 +2254,11 @@ async function bootstrap() {
   renderQueueList();
 
   let syncSucceeded = false;
-  if (getAccount()) {
+  if (activeSource?.type === "local") {
+    rebuildActiveTracksFromSource();
+    syncSucceeded = true;
+    persistAndRender();
+  } else if (getAccount()) {
     try {
       await syncCloudVideos({ force: false });
       syncSucceeded = true;
@@ -1569,6 +2289,8 @@ async function bootstrap() {
   }
 
   window.setInterval(async () => {
+    const source = getActiveSource();
+    if (source?.type !== "onedrive") return;
     if (!getAccount()) return;
     try {
       await syncCloudVideos({ force: false });
@@ -1578,7 +2300,14 @@ async function bootstrap() {
   }, APP_CONFIG.graph.refreshMs);
 }
 
-bootstrap().catch((error) => {
-  console.error(error);
-  window.alert(`初始化失敗：${error.message}`);
-});
+export class AppController {
+  async start() {
+    try {
+      await bootstrap();
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      console.error(err);
+      window.alert(`初始化失敗：${err.message}`);
+    }
+  }
+}

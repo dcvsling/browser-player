@@ -1,10 +1,17 @@
+﻿type TrackLike = {
+  streamUrl?: string;
+};
+
 export class Player {
-  constructor(videoEl, fullscreenHost = null) {
+  private video: HTMLVideoElement;
+  private fullscreenHost: HTMLElement;
+
+  constructor(videoEl: HTMLVideoElement, fullscreenHost: HTMLElement | null = null) {
     this.video = videoEl;
     this.fullscreenHost = fullscreenHost || videoEl;
   }
 
-  load(track, startAt = 0) {
+  load(track: TrackLike, startAt = 0): void {
     if (!track?.streamUrl) return;
     this.video.src = track.streamUrl;
     this.video.load();
@@ -19,33 +26,33 @@ export class Player {
     }
   }
 
-  play() {
+  play(): Promise<void> {
     return this.video.play();
   }
 
-  pause() {
+  pause(): void {
     this.video.pause();
   }
 
-  togglePlay() {
+  togglePlay(): Promise<void> {
     if (this.video.paused) return this.play();
     this.pause();
     return Promise.resolve();
   }
 
-  setVolume(volume) {
+  setVolume(volume: number): void {
     this.video.volume = Math.max(0, Math.min(1, volume));
   }
 
-  setMuted(muted) {
+  setMuted(muted: boolean): void {
     this.video.muted = Boolean(muted);
   }
 
-  setPlaybackRate(rate) {
+  setPlaybackRate(rate: number): void {
     this.video.playbackRate = rate;
   }
 
-  async toggleFullscreen() {
+  async toggleFullscreen(): Promise<boolean> {
     const doc = document;
     if (doc.fullscreenElement === this.fullscreenHost) {
       await doc.exitFullscreen();
@@ -55,7 +62,7 @@ export class Player {
     return true;
   }
 
-  isFullscreen() {
+  isFullscreen(): boolean {
     return document.fullscreenElement === this.fullscreenHost;
   }
 }

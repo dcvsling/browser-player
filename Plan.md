@@ -159,3 +159,30 @@
 ## 5. 目前狀態
 - 已完成一輪手機版 UI 與互動收斂，並完成 PWA 重建與安裝能力接回。
 - 現階段重點為 Android 實機驗證、互動細節微調與部署前收斂。
+
+## 6. TypeScript / 重構階段規劃（2026-04-11）
+1. Phase A（規劃與基礎）
+- [x] 定義分階段遷移策略與完成標準。
+- [x] 建立 TypeScript 編譯設定（Vite + tsconfig）。
+
+2. Phase B（語言遷移）
+- [x] 將 `src` 既有 JS 模組逐步轉為 TS（`config` / `routing` / `player` / `playlist` / `auth` / `graph` / `storage` / `auth-callback` / `app`）。
+- [x] 保持功能與 UI 行為不變，先完成可編譯與可執行。
+
+3. Phase C（結構重構，降低 app 巨檔）
+- [x] 以 OOP / 職責分離重構 `app`：
+- [x] `AppController`（頁面與事件協調）
+- [x] `SourceManager`（來源管理與切換）
+- [ ] `PlaybackController`（播放控制與播放清單協調）
+- [x] 將來源存取步驟抽離為模組（`SourceAccessOrchestrator`）。
+
+4. Phase D（來源抽象與本機來源）
+- [x] 定義來源抽象介面（OneDrive / Local 共通流程）。
+- [x] OneDrive 來源透過來源設定 endpoint 驗證後加入。
+- [x] Local 來源支援檔案/資料夾選擇、遞迴選項、允許副檔名過濾。
+- [x] 以 `ffmpeg.wasm` 產生本機來源 metadata 與縮圖。
+
+5. Phase E（驗證與收斂）
+- [x] `npm run build` / `npm run preview` 驗證。
+- [ ] 功能與 UI 回歸檢查（播放器、清單、設定、來源切換、PWA）。
+- [x] 更新 `Requirement.md` 與 `Plan.md` 實際完成紀錄。
