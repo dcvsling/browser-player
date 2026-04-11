@@ -30,16 +30,40 @@ import { SourceManager } from "./source-manager.js";
 
 const state = loadState();
 const DEFAULT_HOTKEYS = {
-  playPause: "Space",
-  seekBack: "Alt+ArrowLeft",
-  seekForward: "Alt+ArrowRight",
-  prevTrack: "Ctrl+Alt+ArrowUp",
-  nextTrack: "Ctrl+Alt+ArrowDown",
-  toggleMute: "KeyM",
-  toggleShuffle: "KeyS",
-  cycleRepeat: "KeyR",
-  toggleQueue: "KeyQ",
-  toggleFullscreen: "KeyF",
+  playPause: "",
+  seekBack: "",
+  seekForward: "",
+  prevTrack: "",
+  nextTrack: "",
+  toggleMute: "",
+  toggleShuffle: "",
+  cycleRepeat: "",
+  toggleQueue: "",
+  toggleFullscreen: "",
+};
+const DEFAULT_TOUCH_HOTKEYS = {
+  playPause: "tap",
+  seekBack: "swipeLeft",
+  seekForward: "swipeRight",
+  prevTrack: "swipeUp",
+  nextTrack: "swipeDown",
+  toggleMute: "",
+  toggleShuffle: "",
+  cycleRepeat: "",
+  toggleQueue: "",
+  toggleFullscreen: "",
+};
+const DEFAULT_MOUSE_HOTKEYS = {
+  playPause: "leftClick",
+  seekBack: "",
+  seekForward: "",
+  prevTrack: "",
+  nextTrack: "",
+  toggleMute: "",
+  toggleShuffle: "",
+  cycleRepeat: "",
+  toggleQueue: "",
+  toggleFullscreen: "",
 };
 
 let cloudTracks = [];
@@ -61,6 +85,13 @@ let mobileCustomToolsVisible = false;
 let pendingLocalFiles = [];
 let pendingLocalImportMode = "files";
 let openSourceModal = null;
+let suppressNextVideoClickUntil = 0;
+let touchShortcutStart = null;
+let capturingPointerShortcut = null;
+let pointerCaptureTouchStart = null;
+let settingsActiveTab = "source";
+const touchShortcutInputs = {};
+const mouseShortcutInputs = {};
 const appBasePath = detectAppBasePath(window.location.pathname);
 
 const dom = {
@@ -126,6 +157,10 @@ const dom = {
   libraryPanel: document.getElementById("libraryPanel"),
   customPanel: document.getElementById("customPanel"),
   settingsPanel: document.getElementById("settingsPanel"),
+  settingsTabSourceBtn: document.getElementById("settingsTabSourceBtn"),
+  settingsTabHotkeysBtn: document.getElementById("settingsTabHotkeysBtn"),
+  settingsSourceCard: document.getElementById("settingsSourceCard"),
+  settingsHotkeysCard: document.getElementById("settingsHotkeysCard"),
   sourceManageSelect: document.getElementById("sourceManageSelect"),
   deleteSourceBtn: document.getElementById("deleteSourceBtn"),
   openOnedriveSourceModalBtn: document.getElementById("openOnedriveSourceModalBtn"),
@@ -247,25 +282,18 @@ ensureSourceState();
 rebuildActiveTracksFromSource();
 
 function getWaitingTitle() {
-  return "等待播放";
-}
-
-function getPlaybackTitle() {
-  const active = String(dom.nowPlaying?.textContent || "").trim();
-  return active && active !== "尚未選擇影片" ? `正在播放：${active}` : getWaitingTitle();
+  return "Browser Player AI";
 }
 
 function updateAppTitle() {
-  let title = getWaitingTitle();
-  if (currentRoute === "/player") {
-    title = getPlaybackTitle();
-  } else if (currentRoute === "/playlist") {
+  let title = "Browser Player AI";
+  if (currentRoute === "/playlist") {
     title = "播放清單";
   } else if (currentRoute === "/settings") {
     title = "設定";
   }
   if (dom.appTitle) {
-    dom.appTitle.textContent = title;
+    dom.appTitle.textContent = "";
   }
   document.title = title;
   document
@@ -302,10 +330,6 @@ function applyMobileLayoutState() {
     mobileCloudToolsVisible = false;
     mobileCustomToolsVisible = false;
     syncMobilePlaylistToolsVisibility();
-    return;
-  }
-  if (currentRoute === "/settings") {
-    updateRoute("/player", true);
     return;
   }
   if (currentRoute !== "/player") {
@@ -581,11 +605,74 @@ function normalizeShortcut(event) {
 }
 
 function formatShortcutLabel(value) {
-  if (!value) return "";
+  if (!value) return "--";
   return value
     .replace(/Key([A-Z])/g, "$1")
     .replace(/Digit([0-9])/g, "$1")
     .replace(/Arrow/g, "");
+}
+
+function formatTouchShortcutLabel(value) {
+  const map = {
+    "": "--",
+    tap: "點一下",
+    swipeLeft: "左滑",
+    swipeRight: "右滑",
+    swipeUp: "上滑",
+    swipeDown: "下滑",
+  };
+  return map[String(value || "")] || "--";
+}
+
+function formatMouseShortcutLabel(value) {
+  const map = {
+    "": "--",
+    leftClick: "左鍵點擊",
+    rightClick: "右鍵點擊",
+    middleClick: "中鍵點擊",
+  };
+  return map[String(value || "")] || "--";
+}
+
+function ensurePointerHotkeyState() {
+  if (!state.prefs.touchHotkeys || typeof state.prefs.touchHotkeys !== "object") {
+    state.prefs.touchHotkeys = {};
+  }
+  if (!state.prefs.mouseHotkeys || typeof state.prefs.mouseHotkeys !== "object") {
+    state.prefs.mouseHotkeys = {};
+  }
+  Object.keys(DEFAULT_HOTKEYS).forEach((action) => {
+    if (typeof state.prefs.touchHotkeys[action] !== "string") {
+      state.prefs.touchHotkeys[action] = DEFAULT_TOUCH_HOTKEYS[action] || "";
+    }
+    if (typeof state.prefs.mouseHotkeys[action] !== "string") {
+      state.prefs.mouseHotkeys[action] = DEFAULT_MOUSE_HOTKEYS[action] || "";
+    }
+  });
+}
+
+function syncPointerShortcutInputs() {
+  ensurePointerHotkeyState();
+  Object.entries(touchShortcutInputs).forEach(([action, input]) => {
+    if (!input) return;
+    const value = String(state.prefs.touchHotkeys[action] || "");
+    input.value = formatTouchShortcutLabel(value);
+    input.title = formatTouchShortcutLabel(value);
+    const capturing =
+      capturingPointerShortcut?.mode === "touch" && capturingPointerShortcut?.action === action;
+    input.classList.toggle("capturing", Boolean(capturing));
+    input.placeholder = "點一下後輸入";
+  });
+  Object.entries(mouseShortcutInputs).forEach(([action, input]) => {
+    if (!input) return;
+    const value = String(state.prefs.mouseHotkeys[action] || "");
+    input.value = formatMouseShortcutLabel(value);
+    input.title = formatMouseShortcutLabel(value);
+    const capturing =
+      capturingPointerShortcut?.mode === "mouse" && capturingPointerShortcut?.action === action;
+    input.classList.toggle("capturing", Boolean(capturing));
+    input.placeholder = "點一下後輸入";
+  });
 }
 
 function syncShortcutInputs() {
@@ -594,6 +681,7 @@ function syncShortcutInputs() {
     input.classList.toggle("capturing", capturingShortcutAction === action);
     input.placeholder = "按下快捷鍵";
   });
+  syncPointerShortcutInputs();
 }
 
 function syncIconButtons() {
@@ -684,7 +772,7 @@ function revealFullscreenControls() {
 
 function updateRoute(route, replace = false) {
   const normalizedRoute = normalizeRoute(route);
-  currentRoute = isMobileLayout && normalizedRoute === "/settings" ? "/player" : normalizedRoute;
+  currentRoute = normalizedRoute;
   const nextUrl = buildAppUrl(currentRoute, appBasePath);
   if (replace) {
     window.history.replaceState({}, "", nextUrl);
@@ -697,7 +785,7 @@ function updateRoute(route, replace = false) {
 function renderRoute() {
   const isPlayer = currentRoute === "/player";
   const isPlaylist = currentRoute === "/playlist";
-  const isSettings = !isMobileLayout && currentRoute === "/settings";
+  const isSettings = currentRoute === "/settings";
   dom.playerPanel.classList.toggle("hidden", !isPlayer);
   dom.libraryPanel.classList.toggle("hidden", !isPlaylist);
   dom.customPanel.classList.toggle("hidden", !isPlaylist);
@@ -717,12 +805,27 @@ function renderRoute() {
   dom.navPlayerBtn.setAttribute("aria-pressed", String(isPlayer));
   dom.navPlaylistBtn.setAttribute("aria-pressed", String(isPlaylist));
   dom.navSettingsBtn.setAttribute("aria-pressed", String(isSettings));
+  if (isSettings) {
+    renderSettingsTab();
+  }
 
   if (isPlayer) {
     window.requestAnimationFrame(() => {
       dom.video.focus({ preventScroll: true });
     });
   }
+}
+
+function renderSettingsTab() {
+  const isSource = settingsActiveTab === "source";
+  if (dom.settingsTabSourceBtn) {
+    dom.settingsTabSourceBtn.setAttribute("aria-pressed", String(isSource));
+  }
+  if (dom.settingsTabHotkeysBtn) {
+    dom.settingsTabHotkeysBtn.setAttribute("aria-pressed", String(!isSource));
+  }
+  dom.settingsSourceCard?.classList.toggle("hidden", !isSource);
+  dom.settingsHotkeysCard?.classList.toggle("hidden", isSource);
 }
 
 function getSelectedList() {
@@ -1777,71 +1880,85 @@ function shouldIgnoreHotkey(event) {
   );
 }
 
+function executeShortcutAction(action, event = null) {
+  if (!action) return;
+  if (event && typeof event.preventDefault === "function") {
+    event.preventDefault();
+  }
+  if (action === "playPause") {
+    player.togglePlay();
+    return;
+  }
+  if (action === "seekBack") {
+    seekBy(-5);
+    return;
+  }
+  if (action === "seekForward") {
+    seekBy(5);
+    return;
+  }
+  if (action === "prevTrack") {
+    playPrev();
+    return;
+  }
+  if (action === "nextTrack") {
+    playNext();
+    return;
+  }
+  if (action === "toggleMute") {
+    state.prefs.muted = !state.prefs.muted;
+    player.setMuted(state.prefs.muted);
+    persistAndRender();
+    return;
+  }
+  if (action === "toggleShuffle") {
+    state.prefs.shuffle = !state.prefs.shuffle;
+    persistAndRender();
+    return;
+  }
+  if (action === "cycleRepeat") {
+    const modes = ["off", "one", "all"];
+    const idx = modes.indexOf(state.prefs.repeatMode);
+    state.prefs.repeatMode = modes[(idx + 1) % modes.length];
+    persistAndRender();
+    return;
+  }
+  if (action === "toggleQueue") {
+    setQueueOpen(!queueOpen);
+    saveState(state);
+    syncPlayerPrefs();
+    return;
+  }
+  if (action === "toggleFullscreen") {
+    player.toggleFullscreen().catch(() => {});
+    syncPlayerPrefs();
+  }
+}
+
+function normalizeMouseShortcut(event) {
+  if (!event) return "";
+  if (event.button === 0) return "leftClick";
+  if (event.button === 1) return "middleClick";
+  if (event.button === 2) return "rightClick";
+  return "";
+}
+
+function resolveActionByValue(map, value) {
+  return (
+    Object.keys(DEFAULT_HOTKEYS).find((action) => String(map?.[action] || "") === String(value || "")) ||
+    null
+  );
+}
+
 function bindHotkeys() {
   window.addEventListener("keydown", (event) => {
     if (!state.prefs.hotkeysEnabled || shouldIgnoreHotkey(event)) return;
 
     const combo = normalizeShortcut(event);
     if (!combo) return;
-
-    if (combo === state.prefs.hotkeys.playPause) {
-      event.preventDefault();
-      player.togglePlay();
-      return;
-    }
-    if (combo === state.prefs.hotkeys.seekBack) {
-      event.preventDefault();
-      seekBy(-10);
-      return;
-    }
-    if (combo === state.prefs.hotkeys.seekForward) {
-      event.preventDefault();
-      seekBy(10);
-      return;
-    }
-    if (combo === state.prefs.hotkeys.prevTrack) {
-      event.preventDefault();
-      playPrev();
-      return;
-    }
-    if (combo === state.prefs.hotkeys.nextTrack) {
-      event.preventDefault();
-      playNext();
-      return;
-    }
-    if (combo === state.prefs.hotkeys.toggleMute) {
-      event.preventDefault();
-      state.prefs.muted = !state.prefs.muted;
-      player.setMuted(state.prefs.muted);
-      persistAndRender();
-      return;
-    }
-    if (combo === state.prefs.hotkeys.toggleShuffle) {
-      event.preventDefault();
-      state.prefs.shuffle = !state.prefs.shuffle;
-      persistAndRender();
-      return;
-    }
-    if (combo === state.prefs.hotkeys.cycleRepeat) {
-      event.preventDefault();
-      const modes = ["off", "one", "all"];
-      const idx = modes.indexOf(state.prefs.repeatMode);
-      state.prefs.repeatMode = modes[(idx + 1) % modes.length];
-      persistAndRender();
-      return;
-    }
-    if (combo === state.prefs.hotkeys.toggleQueue) {
-      event.preventDefault();
-      setQueueOpen(!queueOpen);
-      saveState(state);
-      syncPlayerPrefs();
-      return;
-    }
-    if (combo === state.prefs.hotkeys.toggleFullscreen) {
-      event.preventDefault();
-      player.toggleFullscreen().catch(() => {});
-      syncPlayerPrefs();
-    }
+    const action = resolveActionByValue(state.prefs.hotkeys, combo);
+    if (!action) return;
+    executeShortcutAction(action, event);
   });
 }
 
@@ -1854,6 +1971,7 @@ function setAuthControlsEnabled(enabled) {
 }
 
 function bindShortcutEditors() {
+  ensurePointerHotkeyState();
   Object.entries(dom.shortcutInputs).forEach(([action, input]) => {
     input.addEventListener("focus", () => {
       capturingShortcutAction = action;
@@ -1890,8 +2008,120 @@ function bindShortcutEditors() {
     });
   });
 
+  const setPointerShortcutValue = (mode, action, value) => {
+    const target = mode === "touch" ? state.prefs.touchHotkeys : state.prefs.mouseHotkeys;
+    Object.keys(target).forEach((name) => {
+      if (name !== action && target[name] === value && value) {
+        target[name] = "";
+      }
+    });
+    target[action] = String(value || "");
+    saveState(state);
+    capturingPointerShortcut = null;
+    pointerCaptureTouchStart = null;
+    syncPointerShortcutInputs();
+  };
+
+  const beginPointerCapture = (mode, action) => {
+    capturingPointerShortcut = { mode, action };
+    pointerCaptureTouchStart = null;
+    syncPointerShortcutInputs();
+  };
+
+  document.querySelectorAll(".shortcut-row[data-action]").forEach((row) => {
+    const action = String(row.getAttribute("data-action") || "");
+    if (!action || !dom.shortcutInputs[action]) return;
+    const touchInput = document.createElement("input");
+    touchInput.className = "shortcut-input touch-shortcut-input";
+    touchInput.readOnly = true;
+    touchInput.setAttribute("aria-label", "觸控快捷鍵");
+    touchInput.addEventListener("focus", () => beginPointerCapture("touch", action));
+    touchInput.addEventListener("click", () => beginPointerCapture("touch", action));
+    touchInput.addEventListener("keydown", (event) => {
+      event.preventDefault();
+      if (event.key === "Escape") {
+        capturingPointerShortcut = null;
+        pointerCaptureTouchStart = null;
+        syncPointerShortcutInputs();
+        touchInput.blur();
+        return;
+      }
+      if (event.key === "Backspace" || event.key === "Delete") {
+        setPointerShortcutValue("touch", action, "");
+        touchInput.blur();
+      }
+    });
+
+    const mouseInput = document.createElement("input");
+    mouseInput.className = "shortcut-input mouse-shortcut-input";
+    mouseInput.readOnly = true;
+    mouseInput.setAttribute("aria-label", "滑鼠快捷鍵");
+    mouseInput.addEventListener("focus", () => beginPointerCapture("mouse", action));
+    mouseInput.addEventListener("click", () => beginPointerCapture("mouse", action));
+    mouseInput.addEventListener("keydown", (event) => {
+      event.preventDefault();
+      if (event.key === "Escape") {
+        capturingPointerShortcut = null;
+        syncPointerShortcutInputs();
+        mouseInput.blur();
+        return;
+      }
+      if (event.key === "Backspace" || event.key === "Delete") {
+        setPointerShortcutValue("mouse", action, "");
+        mouseInput.blur();
+      }
+    });
+
+    row.appendChild(touchInput);
+    row.appendChild(mouseInput);
+    touchShortcutInputs[action] = touchInput;
+    mouseShortcutInputs[action] = mouseInput;
+  });
+
+  window.addEventListener(
+    "touchstart",
+    (event) => {
+      if (capturingPointerShortcut?.mode !== "touch") return;
+      const touch = event.touches?.[0];
+      if (!touch) return;
+      pointerCaptureTouchStart = { x: touch.clientX, y: touch.clientY, at: Date.now() };
+    },
+    { passive: true }
+  );
+  window.addEventListener(
+    "touchend",
+    (event) => {
+      if (capturingPointerShortcut?.mode !== "touch" || !pointerCaptureTouchStart) return;
+      const touch = event.changedTouches?.[0];
+      if (!touch) return;
+      const dx = touch.clientX - pointerCaptureTouchStart.x;
+      const dy = touch.clientY - pointerCaptureTouchStart.y;
+      const elapsed = Date.now() - pointerCaptureTouchStart.at;
+      let gesture = "";
+      if (Math.abs(dx) < 26 && Math.abs(dy) < 26 && elapsed <= 350) {
+        gesture = "tap";
+      } else if (Math.abs(dx) >= Math.abs(dy)) {
+        gesture = dx > 0 ? "swipeRight" : "swipeLeft";
+      } else {
+        gesture = dy > 0 ? "swipeDown" : "swipeUp";
+      }
+      setPointerShortcutValue("touch", capturingPointerShortcut.action, gesture);
+      event.preventDefault();
+    },
+    { passive: false }
+  );
+  window.addEventListener("mousedown", (event) => {
+    if (capturingPointerShortcut?.mode !== "mouse") return;
+    const gesture = normalizeMouseShortcut(event);
+    if (!gesture) return;
+    setPointerShortcutValue("mouse", capturingPointerShortcut.action, gesture);
+    event.preventDefault();
+  });
+
   dom.resetHotkeysBtn.addEventListener("click", () => {
     state.prefs.hotkeys = { ...DEFAULT_HOTKEYS };
+    state.prefs.touchHotkeys = { ...DEFAULT_TOUCH_HOTKEYS };
+    state.prefs.mouseHotkeys = { ...DEFAULT_MOUSE_HOTKEYS };
     capturingShortcutAction = null;
     saveState(state);
     syncShortcutInputs();
@@ -1911,6 +2141,14 @@ function bindEvents() {
   dom.navPlayerBtn.addEventListener("click", () => updateRoute("/player"));
   dom.navPlaylistBtn.addEventListener("click", () => updateRoute("/playlist"));
   dom.navSettingsBtn.addEventListener("click", () => updateRoute("/settings"));
+  dom.settingsTabSourceBtn?.addEventListener("click", () => {
+    settingsActiveTab = "source";
+    renderSettingsTab();
+  });
+  dom.settingsTabHotkeysBtn?.addEventListener("click", () => {
+    settingsActiveTab = "hotkeys";
+    renderSettingsTab();
+  });
   dom.sourceSelect?.addEventListener("change", async () => {
     try {
       await activateSource(dom.sourceSelect.value);
@@ -2008,13 +2246,95 @@ function bindEvents() {
   });
   dom.queueToggleBtn.addEventListener("click", () => setQueueOpen(!queueOpen));
   dom.queueCloseBtn.addEventListener("click", () => setQueueOpen(false));
+  dom.playerPanel.addEventListener("pointerdown", (event) => {
+    if (!queueOpen) return;
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    if (dom.queueDrawer.contains(target)) return;
+    if (dom.queueToggleBtn.contains(target)) return;
+    setQueueOpen(false);
+  });
+  let queueTouchStart = null;
+  dom.queueDrawer.addEventListener(
+    "touchstart",
+    (event) => {
+      const touch = event.touches?.[0];
+      if (!touch) return;
+      queueTouchStart = { x: touch.clientX, y: touch.clientY };
+    },
+    { passive: true }
+  );
+  dom.queueDrawer.addEventListener(
+    "touchend",
+    (event) => {
+      if (!queueTouchStart) return;
+      const touch = event.changedTouches?.[0];
+      if (!touch) return;
+      const dx = touch.clientX - queueTouchStart.x;
+      const dy = touch.clientY - queueTouchStart.y;
+      queueTouchStart = null;
+      if (dx > 60 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+        setQueueOpen(false);
+      }
+    },
+    { passive: true }
+  );
+  dom.video.addEventListener("mousedown", (event) => {
+    if (Date.now() < suppressNextVideoClickUntil) return;
+    const gesture = normalizeMouseShortcut(event);
+    if (!gesture) return;
+    const action = resolveActionByValue(state.prefs.mouseHotkeys, gesture);
+    executeShortcutAction(action, event);
+  });
+  dom.video.addEventListener(
+    "touchstart",
+    (event) => {
+      const touch = event.touches?.[0];
+      if (!touch) return;
+      touchShortcutStart = {
+        x: touch.clientX,
+        y: touch.clientY,
+        at: Date.now(),
+      };
+    },
+    { passive: true }
+  );
+  dom.video.addEventListener(
+    "touchend",
+    (event) => {
+      if (!touchShortcutStart) return;
+      const touch = event.changedTouches?.[0];
+      if (!touch) return;
+      const dx = touch.clientX - touchShortcutStart.x;
+      const dy = touch.clientY - touchShortcutStart.y;
+      const elapsed = Date.now() - touchShortcutStart.at;
+      touchShortcutStart = null;
+      let gesture = "";
+      if (Math.abs(dx) < 26 && Math.abs(dy) < 26 && elapsed <= 350) {
+        gesture = "tap";
+      } else if (Math.abs(dx) >= Math.abs(dy)) {
+        gesture = dx > 0 ? "swipeRight" : "swipeLeft";
+      } else {
+        gesture = dy > 0 ? "swipeDown" : "swipeUp";
+      }
+      const action = resolveActionByValue(state.prefs.touchHotkeys, gesture);
+      if (!action) return;
+      suppressNextVideoClickUntil = Date.now() + 400;
+      executeShortcutAction(action, event);
+    },
+    { passive: false }
+  );
   window.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || !openSourceModal) return;
-    if (openSourceModal === "onedrive") {
-      closeSourceModalByType("onedrive");
+    if (event.key !== "Escape") return;
+    if (openSourceModal) {
+      if (openSourceModal === "onedrive") {
+        closeSourceModalByType("onedrive");
+        return;
+      }
+      closeSourceModalByType("local");
       return;
     }
-    closeSourceModalByType("local");
+    if (queueOpen) setQueueOpen(false);
   });
   window.addEventListener("popstate", () => updateRoute(resolveCurrentRoute(window.location.pathname, appBasePath), true));
   window.matchMedia("(max-width: 900px)").addEventListener("change", () => applyMobileLayoutState());
@@ -2091,6 +2411,11 @@ function bindEvents() {
   });
   document.addEventListener("fullscreenchange", () => syncPlayerPrefs());
   document.addEventListener("fullscreenchange", () => revealFullscreenControls());
+  document.addEventListener("fullscreenchange", () => {
+    if (!player.isFullscreen()) {
+      dom.playerPanel.classList.remove("controls-hidden");
+    }
+  });
 
   dom.shuffleBtn.addEventListener("click", () => {
     state.prefs.shuffle = !state.prefs.shuffle;

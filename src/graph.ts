@@ -351,10 +351,17 @@ function normalizeSizeBytes(value) {
 
 function hasUsableStreamUrl(track) {
   if (!track?.streamUrl) return false;
+  if (isInvalidPlayableUrl(track.streamUrl)) return false;
   if (!track?.streamUrlExpiresAt) return true;
   const expiresAt = Date.parse(track.streamUrlExpiresAt);
   if (Number.isNaN(expiresAt)) return false;
   return expiresAt - STREAM_URL_REFRESH_SKEW_MS > Date.now();
+}
+
+function isInvalidPlayableUrl(url) {
+  const raw = String(url || "").toLowerCase();
+  if (!raw) return false;
+  return raw.includes("/transform/thumbnail") || (raw.includes("width=96") && raw.includes("height=96"));
 }
 
 function inferStreamUrlExpiresAt(streamUrl) {

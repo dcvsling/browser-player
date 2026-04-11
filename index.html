@@ -75,11 +75,8 @@
           <div class="player-overlay top">
             <div class="player-head">
               <div class="player-meta">
-                <div class="now-playing">
-                  <strong>正在播放：</strong>
-                  <span id="nowPlaying">尚未選擇影片</span>
-                  <span id="inlineLoading" class="inline-loading hidden">讀取影片中...</span>
-                </div>
+                <span id="nowPlaying" class="visually-hidden"></span>
+                <span id="inlineLoading" class="inline-loading hidden">讀取影片中...</span>
                 <div id="activeListLabel" class="sync-info"></div>
               </div>
               <button
@@ -290,8 +287,12 @@
           <h2>設定</h2>
           <div class="sync-info">會自動保存，下次開啟會直接還原</div>
         </div>
+        <div class="settings-tabs">
+          <button id="settingsTabSourceBtn" type="button" class="tab-btn" aria-pressed="true">來源</button>
+          <button id="settingsTabHotkeysBtn" type="button" class="tab-btn" aria-pressed="false">快捷鍵</button>
+        </div>
         <div class="settings-grid">
-          <section class="settings-card">
+          <section id="settingsSourceCard" class="settings-card">
             <h3>匯入來源</h3>
             <div class="source-manager">
               <label class="source-field">
@@ -312,23 +313,29 @@
             </div>
           </section>
 
-          <section class="settings-card">
+          <section id="settingsHotkeysCard" class="settings-card hidden">
             <h3>快捷鍵</h3>
             <label class="setting-toggle">
               <input id="hotkeysToggle" type="checkbox" />
               啟用快捷鍵
             </label>
+            <div class="shortcut-head">
+              <span>動作</span>
+              <span>鍵盤</span>
+              <span>觸控</span>
+              <span>滑鼠</span>
+            </div>
             <div class="shortcut-editor">
-              <label class="shortcut-row"><span>播放/暫停</span><input id="shortcut-playPause" class="shortcut-input" type="text" readonly /></label>
-              <label class="shortcut-row"><span>倒退 10 秒</span><input id="shortcut-seekBack" class="shortcut-input" type="text" readonly /></label>
-              <label class="shortcut-row"><span>快轉 10 秒</span><input id="shortcut-seekForward" class="shortcut-input" type="text" readonly /></label>
-              <label class="shortcut-row"><span>上一部</span><input id="shortcut-prevTrack" class="shortcut-input" type="text" readonly /></label>
-              <label class="shortcut-row"><span>下一部</span><input id="shortcut-nextTrack" class="shortcut-input" type="text" readonly /></label>
-              <label class="shortcut-row"><span>靜音</span><input id="shortcut-toggleMute" class="shortcut-input" type="text" readonly /></label>
-              <label class="shortcut-row"><span>隨機</span><input id="shortcut-toggleShuffle" class="shortcut-input" type="text" readonly /></label>
-              <label class="shortcut-row"><span>循環</span><input id="shortcut-cycleRepeat" class="shortcut-input" type="text" readonly /></label>
-              <label class="shortcut-row"><span>播放清單</span><input id="shortcut-toggleQueue" class="shortcut-input" type="text" readonly /></label>
-              <label class="shortcut-row"><span>全螢幕</span><input id="shortcut-toggleFullscreen" class="shortcut-input" type="text" readonly /></label>
+              <label class="shortcut-row" data-action="playPause"><span>播放/暫停</span><input id="shortcut-playPause" class="shortcut-input" type="text" readonly /></label>
+              <label class="shortcut-row" data-action="seekBack"><span>倒退 5 秒</span><input id="shortcut-seekBack" class="shortcut-input" type="text" readonly /></label>
+              <label class="shortcut-row" data-action="seekForward"><span>快轉 5 秒</span><input id="shortcut-seekForward" class="shortcut-input" type="text" readonly /></label>
+              <label class="shortcut-row" data-action="prevTrack"><span>上一部</span><input id="shortcut-prevTrack" class="shortcut-input" type="text" readonly /></label>
+              <label class="shortcut-row" data-action="nextTrack"><span>下一部</span><input id="shortcut-nextTrack" class="shortcut-input" type="text" readonly /></label>
+              <label class="shortcut-row" data-action="toggleMute"><span>靜音</span><input id="shortcut-toggleMute" class="shortcut-input" type="text" readonly /></label>
+              <label class="shortcut-row" data-action="toggleShuffle"><span>隨機</span><input id="shortcut-toggleShuffle" class="shortcut-input" type="text" readonly /></label>
+              <label class="shortcut-row" data-action="cycleRepeat"><span>循環</span><input id="shortcut-cycleRepeat" class="shortcut-input" type="text" readonly /></label>
+              <label class="shortcut-row" data-action="toggleQueue"><span>播放清單</span><input id="shortcut-toggleQueue" class="shortcut-input" type="text" readonly /></label>
+              <label class="shortcut-row" data-action="toggleFullscreen"><span>全螢幕</span><input id="shortcut-toggleFullscreen" class="shortcut-input" type="text" readonly /></label>
             </div>
             <div class="settings-actions">
               <button id="resetHotkeysBtn" type="button" class="icon-btn" aria-label="重設快捷鍵" title="重設快捷鍵">

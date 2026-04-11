@@ -54,10 +54,21 @@ export class SourceAccessOrchestrator {
       };
     }
 
+    const hasInvalidStreamUrl = isInvalidPlayableUrl(String(track?.streamUrl || ""));
     const token = await this.deps.getAccessToken();
-    return this.deps.hydrateTrackStreamUrl(token, track, {
-      force: Boolean(options.forceRefresh),
+    const hydrated = await this.deps.hydrateTrackStreamUrl(token, track, {
+      force: Boolean(options.forceRefresh) || hasInvalidStreamUrl,
       childrenEndpoint: String(source.childrenEndpoint || ""),
     });
+    if (isInvalidPlayableUrl(String(hydrated?.streamUrl || ""))) {
+      throw new Error("來源提供的是縮圖連結，非可播放影片連結。請重新同步來源。");
+    }
+    return hydrated;
   }
+}
+
+function isInvalidPlayableUrl(url: string): boolean {
+  const raw = String(url || "").toLowerCase();
+  if (!raw) return false;
+  return raw.includes("/transform/thumbnail") || (raw.includes("width=96") && raw.includes("height=96"));
 }
