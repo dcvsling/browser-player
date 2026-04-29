@@ -43,6 +43,9 @@
         <button id="navSettingsBtn" type="button" data-route="/settings" class="icon-btn" aria-label="設定" title="設定">
           <span class="material-symbols-rounded" aria-hidden="true">settings</span>
         </button>
+        <button id="navScheduleBtn" type="button" data-route="/schedule" class="icon-btn" aria-label="排程" title="排程">
+          <span class="material-symbols-rounded" aria-hidden="true">pending_actions</span>
+        </button>
       </nav>
       <div class="auth-actions">
         <button
@@ -282,6 +285,23 @@
         <ul id="customTracks" class="list compact"></ul>
       </section>
 
+      <section id="schedulePanel" class="panel schedule-panel hidden">
+        <div class="panel-head">
+          <h2>排程</h2>
+          <div class="head-actions">
+            <label class="sort-select" aria-label="一次處理項目數">
+              <span class="visually-hidden">一次處理項目數</span>
+              <input id="scheduleBatchSizeInput" type="number" min="1" max="12" step="1" value="2" title="一次處理項目數" />
+            </label>
+            <button id="updateScheduleBatchBtn" type="button" class="icon-btn" aria-label="更新排程設定" title="更新排程設定">
+              <span class="material-symbols-rounded" aria-hidden="true">check</span>
+            </button>
+          </div>
+        </div>
+        <div id="scheduleSummary" class="schedule-filters" aria-label="排程狀態篩選"></div>
+        <ul id="scheduleList" class="list schedule-list"></ul>
+      </section>
+
       <section id="settingsPanel" class="panel settings-panel hidden">
         <div class="panel-head">
           <h2>設定</h2>
@@ -336,6 +356,14 @@
               <label class="shortcut-row" data-action="cycleRepeat"><span>循環</span><input id="shortcut-cycleRepeat" class="shortcut-input" type="text" readonly /></label>
               <label class="shortcut-row" data-action="toggleQueue"><span>播放清單</span><input id="shortcut-toggleQueue" class="shortcut-input" type="text" readonly /></label>
               <label class="shortcut-row" data-action="toggleFullscreen"><span>全螢幕</span><input id="shortcut-toggleFullscreen" class="shortcut-input" type="text" readonly /></label>
+              <label class="shortcut-row" data-action="routePlayer"><span>切換到播放器</span><input id="shortcut-routePlayer" class="shortcut-input" type="text" readonly /></label>
+              <label class="shortcut-row" data-action="routePlaylist"><span>切換到播放清單</span><input id="shortcut-routePlaylist" class="shortcut-input" type="text" readonly /></label>
+              <label class="shortcut-row" data-action="routeSettings"><span>切換到設定</span><input id="shortcut-routeSettings" class="shortcut-input" type="text" readonly /></label>
+              <label class="shortcut-row" data-action="routeSchedule"><span>切換到排程</span><input id="shortcut-routeSchedule" class="shortcut-input" type="text" readonly /></label>
+              <label class="shortcut-row" data-action="volumeUp"><span>音量增加</span><input id="shortcut-volumeUp" class="shortcut-input" type="text" readonly /></label>
+              <label class="shortcut-row" data-action="volumeDown"><span>音量減少</span><input id="shortcut-volumeDown" class="shortcut-input" type="text" readonly /></label>
+              <label class="shortcut-row" data-action="speedUp"><span>播放速度增加</span><input id="shortcut-speedUp" class="shortcut-input" type="text" readonly /></label>
+              <label class="shortcut-row" data-action="speedDown"><span>播放速度減少</span><input id="shortcut-speedDown" class="shortcut-input" type="text" readonly /></label>
             </div>
             <div class="settings-actions">
               <button id="resetHotkeysBtn" type="button" class="icon-btn" aria-label="重設快捷鍵" title="重設快捷鍵">

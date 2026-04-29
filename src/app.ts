@@ -8,9 +8,9 @@ import {
   fetchFolderMarker,
   computeLatest,
   hydrateTrackStreamUrl,
+  fetchLatestThumbnailUrl,
 } from "./graph.js";
-import { PlaylistController } from "./playlist.js";
-import { Player } from "./player.js";
+import { PlaybackController } from "./playback-controller.js";
 import {
   buildAppUrl,
   detectAppBasePath,
@@ -19,7 +19,7 @@ import {
   restoreGithubPagesRoute,
 } from "./routing.js";
 import { CLOUD_CACHE_VERSION, DEFAULT_SOURCE_ID, loadState, saveState } from "./storage.js";
-import { buildLocalSourceTracks } from "./local-media.js";
+import { buildLocalSourceTracks, extractThumbnailBlobWithFfmpeg } from "./local-media.js";
 import {
   loadLocalRuntimeFile,
   removeLocalRuntimeFilesBySource,
@@ -27,6 +27,12 @@ import {
 } from "./local-runtime-cache.js";
 import { SourceAccessOrchestrator } from "./source-access.js";
 import { SourceManager } from "./source-manager.js";
+import {
+  loadThumbnailBlob,
+  makeThumbnailKey,
+  removeThumbnailsBySource,
+  saveThumbnailBlob,
+} from "./thumbnail-cache.js";
 
 const state = loadState();
 const DEFAULT_HOTKEYS = {
@@ -40,6 +46,14 @@ const DEFAULT_HOTKEYS = {
   cycleRepeat: "",
   toggleQueue: "",
   toggleFullscreen: "",
+  routePlayer: "F1",
+  routePlaylist: "F2",
+  routeSettings: "F3",
+  routeSchedule: "F4",
+  volumeUp: "",
+  volumeDown: "",
+  speedUp: "",
+  speedDown: "",
 };
 const DEFAULT_TOUCH_HOTKEYS = {
   playPause: "tap",
@@ -52,6 +66,14 @@ const DEFAULT_TOUCH_HOTKEYS = {
   cycleRepeat: "",
   toggleQueue: "",
   toggleFullscreen: "",
+  routePlayer: "",
+  routePlaylist: "",
+  routeSchedule: "",
+  routeSettings: "",
+  volumeUp: "",
+  volumeDown: "",
+  speedUp: "",
+  speedDown: "",
 };
 const DEFAULT_MOUSE_HOTKEYS = {
   playPause: "leftClick",
@@ -64,15 +86,20 @@ const DEFAULT_MOUSE_HOTKEYS = {
   cycleRepeat: "",
   toggleQueue: "",
   toggleFullscreen: "",
+  routePlayer: "",
+  routePlaylist: "",
+  routeSchedule: "",
+  routeSettings: "",
+  volumeUp: "",
+  volumeDown: "",
+  speedUp: "",
+  speedDown: "",
 };
 
 let cloudTracks = [];
 let isSyncing = false;
 let currentRoute = "/player";
 let queueOpen = false;
-let isRecoveringSource = false;
-let lastRecoveryAt = 0;
-let isScrubbing = false;
 let capturingShortcutAction = null;
 let fullscreenControlsTimer = 0;
 let deferredInstallPrompt = null;
@@ -90,14 +117,25 @@ let touchShortcutStart = null;
 let capturingPointerShortcut = null;
 let pointerCaptureTouchStart = null;
 let settingsActiveTab = "source";
+let scheduleProcessing = false;
+let scheduleWakeTimer = 0;
+let scheduleStatusFilter = "";
 const touchShortcutInputs = {};
 const mouseShortcutInputs = {};
+const thumbnailObjectUrls = new Map();
 const appBasePath = detectAppBasePath(window.location.pathname);
+
+if (state.prefs?.hotkeys?.routeSchedule === "F3" && state.prefs?.hotkeys?.routeSettings === "F4") {
+  state.prefs.hotkeys.routeSettings = "F3";
+  state.prefs.hotkeys.routeSchedule = "F4";
+  saveState(state);
+}
 
 const dom = {
   appTitle: document.getElementById("appTitle"),
   navPlayerBtn: document.getElementById("navPlayerBtn"),
   navPlaylistBtn: document.getElementById("navPlaylistBtn"),
+  navScheduleBtn: document.getElementById("navScheduleBtn"),
   navSettingsBtn: document.getElementById("navSettingsBtn"),
   installAppBtn: document.getElementById("installAppBtn"),
   mobileMenuBtn: document.getElementById("mobileMenuBtn"),
@@ -157,6 +195,11 @@ const dom = {
   libraryPanel: document.getElementById("libraryPanel"),
   customPanel: document.getElementById("customPanel"),
   settingsPanel: document.getElementById("settingsPanel"),
+  schedulePanel: document.getElementById("schedulePanel"),
+  scheduleBatchSizeInput: document.getElementById("scheduleBatchSizeInput"),
+  updateScheduleBatchBtn: document.getElementById("updateScheduleBatchBtn"),
+  scheduleSummary: document.getElementById("scheduleSummary"),
+  scheduleList: document.getElementById("scheduleList"),
   settingsTabSourceBtn: document.getElementById("settingsTabSourceBtn"),
   settingsTabHotkeysBtn: document.getElementById("settingsTabHotkeysBtn"),
   settingsSourceCard: document.getElementById("settingsSourceCard"),
@@ -193,11 +236,17 @@ const dom = {
     cycleRepeat: document.getElementById("shortcut-cycleRepeat"),
     toggleQueue: document.getElementById("shortcut-toggleQueue"),
     toggleFullscreen: document.getElementById("shortcut-toggleFullscreen"),
+    routePlayer: document.getElementById("shortcut-routePlayer"),
+    routePlaylist: document.getElementById("shortcut-routePlaylist"),
+    routeSchedule: document.getElementById("shortcut-routeSchedule"),
+    routeSettings: document.getElementById("shortcut-routeSettings"),
+    volumeUp: document.getElementById("shortcut-volumeUp"),
+    volumeDown: document.getElementById("shortcut-volumeDown"),
+    speedUp: document.getElementById("shortcut-speedUp"),
+    speedDown: document.getElementById("shortcut-speedDown"),
   },
 };
 
-const playlist = new PlaylistController();
-const player = new Player(dom.video, dom.playerPanel);
 const sourceManager = new SourceManager({
   state,
   appConfig: APP_CONFIG,
@@ -224,6 +273,34 @@ const sourceAccess = new SourceAccessOrchestrator({
     }
     return persisted;
   },
+});
+
+const playbackController = new PlaybackController({
+  video: dom.video,
+  fullscreenHost: dom.playerPanel,
+  state,
+  sourceAccess,
+  getActiveTracks,
+  getActiveSource,
+  getDefaultSource: () => ({
+    id: DEFAULT_SOURCE_ID,
+    type: "onedrive",
+    childrenEndpoint: APP_CONFIG.graph.childrenEndpoint,
+  }),
+  findSourceById,
+  findTrackFromSourceById,
+  withTrackSourceMetadata,
+  cacheHydratedTrackForSource,
+  setInlineLoading,
+  setNowPlayingText: (text) => {
+    dom.nowPlaying.textContent = text;
+  },
+  updateAppTitle,
+  updatePlaybackProgress,
+  persistAndRender,
+  saveState: () => saveState(state),
+  alert: (message) => window.alert(message),
+  logError: (error) => console.error(error),
 });
 
 function createEmptyCloudCache() {
@@ -289,6 +366,8 @@ function updateAppTitle() {
   let title = "Browser Player AI";
   if (currentRoute === "/playlist") {
     title = "播放清單";
+  } else if (currentRoute === "/schedule") {
+    title = "排程";
   } else if (currentRoute === "/settings") {
     title = "設定";
   }
@@ -540,14 +619,14 @@ function resetCloudState() {
     };
     sourceManager.clearRuntimeFiles(source.id);
     removeLocalRuntimeFilesBySource(source.id).catch(() => {});
+    removeThumbnailsBySource(source.id).catch(() => {});
   }
   state.playback.currentId = null;
   state.playback.currentTime = 0;
   dom.nowPlaying.textContent = "尚未選擇影片";
   updateAppTitle();
-  player.pause();
-  dom.video.removeAttribute("src");
-  dom.video.load();
+  playbackController.pause();
+  playbackController.clearLoadedSource();
   updatePlaybackProgress(0, 0);
 }
 
@@ -625,6 +704,9 @@ function formatTouchShortcutLabel(value) {
 }
 
 function formatMouseShortcutLabel(value) {
+  if (String(value || "").startsWith("key:")) {
+    return formatShortcutLabel(String(value).slice(4));
+  }
   const map = {
     "": "--",
     leftClick: "左鍵點擊",
@@ -701,8 +783,8 @@ function syncIconButtons() {
 
   setButtonIcon(dom.playBtn, dom.video.paused ? "play_arrow" : "pause");
   dom.playBtn.setAttribute("aria-label", dom.video.paused ? "播放" : "暫停");
-  setButtonIcon(dom.fullscreenBtn, player.isFullscreen() ? "close_fullscreen" : "open_in_full");
-  dom.fullscreenBtn.setAttribute("aria-label", player.isFullscreen() ? "離開全螢幕" : "全螢幕");
+  setButtonIcon(dom.fullscreenBtn, playbackController.isFullscreen() ? "close_fullscreen" : "open_in_full");
+  dom.fullscreenBtn.setAttribute("aria-label", playbackController.isFullscreen() ? "離開全螢幕" : "全螢幕");
   dom.queueToggleBtn.setAttribute("aria-label", queueOpen ? "關閉側邊清單" : "開啟側邊清單");
   setButtonIcon(dom.queueToggleBtn, queueOpen ? "close" : "playlist_play");
 
@@ -757,14 +839,14 @@ function setButtonIcon(button, iconName) {
 }
 
 function revealFullscreenControls() {
-  if (!player.isFullscreen()) {
+  if (!playbackController.isFullscreen()) {
     dom.playerPanel.classList.remove("controls-hidden");
     return;
   }
   dom.playerPanel.classList.remove("controls-hidden");
   window.clearTimeout(fullscreenControlsTimer);
   fullscreenControlsTimer = window.setTimeout(() => {
-    if (player.isFullscreen()) {
+    if (playbackController.isFullscreen()) {
       dom.playerPanel.classList.add("controls-hidden");
     }
   }, 2400);
@@ -785,10 +867,12 @@ function updateRoute(route, replace = false) {
 function renderRoute() {
   const isPlayer = currentRoute === "/player";
   const isPlaylist = currentRoute === "/playlist";
+  const isSchedule = currentRoute === "/schedule";
   const isSettings = currentRoute === "/settings";
   dom.playerPanel.classList.toggle("hidden", !isPlayer);
   dom.libraryPanel.classList.toggle("hidden", !isPlaylist);
   dom.customPanel.classList.toggle("hidden", !isPlaylist);
+  dom.schedulePanel.classList.toggle("hidden", !isSchedule);
   dom.settingsPanel.classList.toggle("hidden", !isSettings);
   if (!isPlayer) setQueueOpen(false);
   if (!isPlayer) setMobilePlayerChromeVisible(false);
@@ -800,11 +884,16 @@ function renderRoute() {
 
   document.body.classList.toggle("route-player", isPlayer);
   document.body.classList.toggle("route-playlist", isPlaylist);
+  document.body.classList.toggle("route-schedule", isSchedule);
   document.body.classList.toggle("route-settings", isSettings);
 
   dom.navPlayerBtn.setAttribute("aria-pressed", String(isPlayer));
   dom.navPlaylistBtn.setAttribute("aria-pressed", String(isPlaylist));
+  dom.navScheduleBtn.setAttribute("aria-pressed", String(isSchedule));
   dom.navSettingsBtn.setAttribute("aria-pressed", String(isSettings));
+  if (isSchedule) {
+    renderSchedule();
+  }
   if (isSettings) {
     renderSettingsTab();
   }
@@ -951,7 +1040,7 @@ function updateTrackDuration(trackId, durationSeconds) {
 function updatePlaybackProgress(currentTime = 0, duration = 0) {
   const safeCurrent = Number.isFinite(currentTime) ? currentTime : 0;
   const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
-  if (!isScrubbing) {
+  if (playbackController.shouldUpdateProgressInput()) {
     const value = safeDuration > 0 ? Math.min(1000, Math.round((safeCurrent / safeDuration) * 1000)) : 0;
     dom.progressInput.value = String(value);
   }
@@ -960,9 +1049,7 @@ function updatePlaybackProgress(currentTime = 0, duration = 0) {
 }
 
 function syncPlayerPrefs() {
-  player.setVolume(state.prefs.volume);
-  player.setMuted(state.prefs.muted);
-  player.setPlaybackRate(state.prefs.playbackRate);
+  playbackController.syncPlayerPrefs();
 
   dom.volumeInput.value = String(state.prefs.volume);
   dom.speedSelect.value = String(state.prefs.playbackRate);
@@ -1061,6 +1148,11 @@ function createInvalidSourceError(message = "來源不合法") {
   return error;
 }
 
+function getErrorMessage(error, fallback = "來源不合法") {
+  const message = String(error?.message || "").trim();
+  return message || fallback;
+}
+
 function setModalError(target, message) {
   if (!target) return;
   const hasMessage = Boolean(String(message || "").trim());
@@ -1145,17 +1237,17 @@ async function addOnedriveSource() {
   const name = String(dom.newOnedriveNameInput.value || "").trim();
   const childrenEndpoint = String(dom.newOnedriveUrlInput.value || "").trim();
   if (!name) {
-    throw createInvalidSourceError();
+    throw createInvalidSourceError("請輸入來源名稱");
   }
   if (!validateOnedriveEndpoint(childrenEndpoint)) {
-    throw createInvalidSourceError();
+    throw createInvalidSourceError("children URL 不合法");
   }
 
   try {
     const token = await getAccessToken();
     await fetchFolderMarker(token, { childrenEndpoint });
   } catch {
-    throw createInvalidSourceError();
+    throw createInvalidSourceError("無法讀取此 OneDrive 來源，請確認 URL 與授權。");
   }
 
   const id = `onedrive-${Date.now()}`;
@@ -1241,10 +1333,10 @@ async function pickLocalFolderFromDialog() {
 async function addLocalSource() {
   const name = String(dom.newLocalNameInput.value || "").trim();
   if (!name) {
-    throw createInvalidSourceError();
+    throw createInvalidSourceError("請輸入來源名稱");
   }
   if (!pendingLocalFiles.length) {
-    throw createInvalidSourceError();
+    throw createInvalidSourceError("請先選擇本機檔案或資料夾");
   }
 
   setLoading(true, "分析本機來源中...");
@@ -1263,7 +1355,7 @@ async function addLocalSource() {
       onProgress: (progress) => setLoading(true, progress.message),
     });
     if (!tracks.length) {
-      throw createInvalidSourceError();
+      throw createInvalidSourceError("沒有找到可匯入的 MP4 檔案");
     }
 
     sourceManager.addSource({
@@ -1281,6 +1373,7 @@ async function addLocalSource() {
     getLocalDataForSource(sourceId).importMode = pendingLocalImportMode;
     sourceManager.setRuntimeFiles(sourceId, runtimeFiles);
     await persistLocalRuntimeFiles(sourceId, runtimeFiles);
+    enqueueLocalThumbnailJobs(sourceId, tracks);
 
     resetLocalSourceDraft();
     await activateSource(sourceId);
@@ -1303,6 +1396,7 @@ async function deleteSelectedSource() {
   if (source.type === "local") {
     removeLocalRuntimeFilesBySource(deletingId).catch(() => {});
   }
+  removeThumbnailsBySource(deletingId).catch(() => {});
   renderSourceSelect();
   renderSourceSettings();
   saveState(state);
@@ -1322,6 +1416,22 @@ function renderListLabels() {
 }
 
 function createThumb(track) {
+  const thumbnailKey = getTrackThumbnailKey(track);
+  if (thumbnailKey && thumbnailObjectUrls.has(thumbnailKey)) {
+    const img = document.createElement("img");
+    img.className = "thumb";
+    img.src = thumbnailObjectUrls.get(thumbnailKey);
+    img.alt = `${track.name} 縮圖`;
+    img.loading = "lazy";
+    return img;
+  }
+  if (thumbnailKey) {
+    const ph = document.createElement("div");
+    ph.className = "thumb-placeholder";
+    ph.textContent = "MP4";
+    hydratePersistedThumb(track, ph, thumbnailKey);
+    return ph;
+  }
   if (track?.thumbnailUrl) {
     const img = document.createElement("img");
     img.className = "thumb";
@@ -1334,6 +1444,35 @@ function createThumb(track) {
   ph.className = "thumb-placeholder";
   ph.textContent = "MP4";
   return ph;
+}
+
+function getTrackThumbnailKey(track) {
+  const explicit = String(track?.thumbnailKey || "");
+  if (explicit) return explicit;
+  const sourceId = String(track?.sourceId || track?.localSourceId || "");
+  const trackId = String(track?.id || "");
+  return sourceId && trackId ? makeThumbnailKey(sourceId, trackId) : "";
+}
+
+function hydratePersistedThumb(track, placeholder, key = getTrackThumbnailKey(track)) {
+  if (!key || thumbnailObjectUrls.has(key)) return;
+  loadThumbnailBlob(key)
+    .then((blob) => {
+      if (!blob || !placeholder.isConnected) return;
+      const url = URL.createObjectURL(blob);
+      thumbnailObjectUrls.set(key, url);
+      if (!track.thumbnailKey) {
+        const sourceId = String(track?.sourceId || track?.localSourceId || "");
+        if (sourceId && track?.id) updateTrackThumbnailKey(sourceId, track.id, key);
+      }
+      const img = document.createElement("img");
+      img.className = "thumb";
+      img.src = url;
+      img.alt = `${track.name} 縮圖`;
+      img.loading = "lazy";
+      placeholder.replaceWith(img);
+    })
+    .catch(() => {});
 }
 
 function createTrackMeta(track) {
@@ -1469,6 +1608,26 @@ function renderCustomTracks() {
   });
 }
 
+function normalizeCustomListName(input) {
+  const fallback = "我的清單";
+  const raw = String(input || "").trim();
+  const name = raw || fallback;
+  const hasDuplicate = state.custom.lists.some((list) => String(list.name || "").trim() === name);
+  if (!raw && hasDuplicate) {
+    window.alert("請輸入清單名稱");
+    return "";
+  }
+  if (hasDuplicate) {
+    window.alert("清單名稱已存在，請輸入清單名稱");
+    return "";
+  }
+  if (!/^[\p{Script=Han}A-Za-z0-9 _-]+$/u.test(name)) {
+    window.alert("清單名稱僅允許中文、英文、數字、空格、底線（_）與連字號（-）。");
+    return "";
+  }
+  return name;
+}
+
 function renderQueueList() {
   dom.playQueueList.innerHTML = "";
   const tracks = getActiveTracks();
@@ -1520,16 +1679,6 @@ function persistAndRender() {
   syncPlayerPrefs();
 }
 
-function syncPlaylistController() {
-  const active = getActiveTracks();
-  playlist.setTracks(active);
-  playlist.toggleShuffle(state.prefs.shuffle);
-  playlist.setRepeatMode(state.prefs.repeatMode);
-  if (state.playback.currentId) {
-    playlist.setCurrentById(state.playback.currentId);
-  }
-}
-
 function setLoading(visible, text = "更新中...") {
   isSyncing = visible;
   dom.loadingText.textContent = text;
@@ -1542,65 +1691,299 @@ function setInlineLoading(visible, text = "讀取影片中...") {
   dom.inlineLoading.classList.toggle("hidden", !visible);
 }
 
-async function startPlayback(trackId, fromTime = 0, opts = {}) {
-  const { showInlineLoading = false, autoplay = true, silentError = false, forceRefresh = false } = opts;
-  state.playback.currentId = trackId;
-  state.playback.currentTime = fromTime;
-
-  syncPlaylistController();
-  const current = playlist.setCurrentById(trackId);
-  if (!current) {
-    dom.nowPlaying.textContent = "找不到影片，可能已被移除。";
-    updateAppTitle();
-    persistAndRender();
-    return;
+function getBackgroundJobs() {
+  if (!state.background || typeof state.background !== "object") {
+    state.background = { batchSize: 2, jobs: [] };
   }
+  if (!Array.isArray(state.background.jobs)) state.background.jobs = [];
+  return state.background.jobs;
+}
 
-  let playable = current;
-  try {
-    setInlineLoading(showInlineLoading, "讀取影片中...");
-    const targetSourceId = current?.sourceId || current?.localSourceId;
-    const targetSource =
-      findSourceById(targetSourceId) ||
-      getActiveSource() || {
-        id: DEFAULT_SOURCE_ID,
-        type: "onedrive",
-        childrenEndpoint: APP_CONFIG.graph.childrenEndpoint,
-      };
-    const sourceTrack =
-      findTrackFromSourceById(targetSource, current.id) ||
-      withTrackSourceMetadata(current, targetSource);
-    playable = await sourceAccess.resolvePlayableTrack(targetSource, sourceTrack, {
-      forceRefresh: forceRefresh,
-    });
-    if (targetSource?.type !== "local") {
-      cacheHydratedTrackForSource(targetSource.id, playable);
+function getScheduleBatchSize() {
+  const value = Number(state.background?.batchSize);
+  return Number.isFinite(value) && value > 0 ? Math.min(12, Math.max(1, Math.round(value))) : 2;
+}
+
+function createBackgroundJob(type, sourceId, trackId) {
+  const id = `${type}:${sourceId}:${trackId}`;
+  const jobs = getBackgroundJobs();
+  const existing = jobs.find((job) => job.id === id);
+  if (existing) {
+    if (existing.status === "failed") {
+      existing.status = "pending";
+      existing.progress = 0;
+      existing.error = "";
+      existing.updatedAt = new Date().toISOString();
     }
-  } catch (error) {
-    if (!silentError) console.error(error);
-    if (!silentError) window.alert(`無法播放此影片：${error.message}`);
-    return;
-  } finally {
-    setInlineLoading(false);
+    return existing;
   }
+  const job = {
+    id,
+    type,
+    sourceId,
+    trackId,
+    status: "pending",
+    progress: 0,
+    message: "",
+    createdAt: new Date().toISOString(),
+    updatedAt: null,
+    error: "",
+  };
+  jobs.push(job);
+  return job;
+}
 
-  if (!playable.streamUrl) {
-    if (!silentError) window.alert("此影片目前無法取得可播放連結。");
-    return;
+function hasCompletedThumbnailJob(type, sourceId, trackId) {
+  const id = `${type}:${sourceId}:${trackId}`;
+  return getBackgroundJobs().some((job) => job.id === id && job.status === "done");
+}
+
+function ensureCompletedThumbnailKey(type, sourceId, track) {
+  if (!track?.id) return false;
+  if (track.thumbnailKey) return true;
+  if (!hasCompletedThumbnailJob(type, sourceId, track.id)) return false;
+  updateTrackThumbnailKey(sourceId, track.id, makeThumbnailKey(sourceId, track.id));
+  return true;
+}
+
+function enqueueLocalThumbnailJobs(sourceId, tracks) {
+  (tracks || []).forEach((track) => {
+    if (track?.thumbnailKey) return;
+    if (ensureCompletedThumbnailKey("localThumbnailExtract", sourceId, track)) return;
+    createBackgroundJob("localThumbnailExtract", sourceId, track.id);
+  });
+  saveState(state);
+  renderSchedule();
+  wakeScheduleProcessor();
+}
+
+function enqueueCloudThumbnailJobs(sourceId, tracks) {
+  (tracks || []).forEach((track) => {
+    if (!track?.thumbnailUrl || track?.thumbnailKey) return;
+    if (ensureCompletedThumbnailKey("cloudThumbnailDownload", sourceId, track)) return;
+    createBackgroundJob("cloudThumbnailDownload", sourceId, track.id);
+  });
+  saveState(state);
+  renderSchedule();
+  wakeScheduleProcessor();
+}
+
+function updateJob(job, patch) {
+  Object.assign(job, patch, { updatedAt: new Date().toISOString() });
+  saveState(state);
+  renderSchedule();
+}
+
+function updateTrackThumbnailKey(sourceId, trackId, thumbnailKey) {
+  const source = findSourceById(sourceId);
+  if (!source) return;
+  const apply = (track) => (track.id === trackId ? { ...track, thumbnailKey } : track);
+  if (source.type === "onedrive") {
+    const cache = getCloudCacheForSource(source.id);
+    cache.tracks = cache.tracks.map(apply);
+  } else {
+    const local = getLocalDataForSource(source.id);
+    local.tracks = local.tracks.map(apply);
   }
+  if (source.id === state.sources.activeSourceId) {
+    cloudTracks = cloudTracks.map(apply);
+  }
+  const originKey = `${sourceId}::${trackId}`;
+  state.custom.lists.forEach((list) => {
+    migrateLegacyListTracks(list);
+    list.tracks = (list.tracks || []).map((track) =>
+      getTrackOriginKey(track) === originKey ? { ...track, thumbnailKey } : track
+    );
+  });
+  saveState(state);
+  renderCloudList();
+  renderCustomTracks();
+  renderQueueList();
+}
 
-  player.load(playable, fromTime);
-  dom.nowPlaying.textContent = playable.name;
-  updateAppTitle();
-  updatePlaybackProgress(fromTime, dom.video.duration || 0);
-  persistAndRender();
+async function processLocalThumbnailJob(job) {
+  const file = await loadLocalRuntimeFile(job.sourceId, job.trackId);
+  if (!file) throw new Error("找不到本機檔案，請重新匯入來源。");
+  const blob = await extractThumbnailBlobWithFfmpeg(file, job.sourceId, job.trackId);
+  if (!blob) throw new Error("ffmpeg.wasm 無法擷取縮圖。");
+  const key = makeThumbnailKey(job.sourceId, job.trackId);
+  await saveThumbnailBlob(key, blob);
+  const oldUrl = thumbnailObjectUrls.get(key);
+  if (oldUrl) URL.revokeObjectURL(oldUrl);
+  thumbnailObjectUrls.set(key, URL.createObjectURL(blob));
+  updateTrackThumbnailKey(job.sourceId, job.trackId, key);
+}
 
-  if (!autoplay) return;
+async function processCloudThumbnailJob(job) {
+  const source = findSourceById(job.sourceId);
+  const track = source ? findTrackFromSourceById(source, job.trackId) : null;
+  if (!track) throw new Error("找不到雲端影片。");
+  const token = await getAccessToken();
+  const thumbnailUrl = await fetchLatestThumbnailUrl(token, track, {
+    childrenEndpoint: source?.childrenEndpoint || APP_CONFIG.graph.childrenEndpoint,
+  });
+  if (!thumbnailUrl) throw new Error("Graph 未提供可下載的最新縮圖。");
+  const response = await fetch(thumbnailUrl);
+  if (!response.ok) throw new Error(`下載縮圖失敗：${response.status}`);
+  const blob = await response.blob();
+  const key = makeThumbnailKey(job.sourceId, job.trackId);
+  await saveThumbnailBlob(key, blob);
+  const oldUrl = thumbnailObjectUrls.get(key);
+  if (oldUrl) URL.revokeObjectURL(oldUrl);
+  thumbnailObjectUrls.set(key, URL.createObjectURL(blob));
+  updateTrackThumbnailKey(job.sourceId, job.trackId, key);
+}
+
+async function runScheduleJob(job) {
+  updateJob(job, {
+    status: "running",
+    progress: 0.15,
+    message: job.type === "localThumbnailExtract" ? "ffmpeg.wasm 擷取縮圖中" : "下載雲端縮圖中",
+    error: "",
+  });
   try {
-    await player.play();
-  } catch {
-    // user gesture restriction
+    if (job.type === "cloudThumbnailDownload") {
+      await processCloudThumbnailJob(job);
+    } else {
+      await processLocalThumbnailJob(job);
+    }
+    updateJob(job, { status: "done", progress: 1, message: "已完成", error: "" });
+  } catch (error) {
+    updateJob(job, {
+      status: "failed",
+      progress: 0,
+      message: "處理失敗",
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
+}
+
+function wakeScheduleProcessor() {
+  window.clearTimeout(scheduleWakeTimer);
+  scheduleWakeTimer = window.setTimeout(() => {
+    processScheduleQueue().catch((error) => console.error("背景排程失敗", error));
+  }, 120);
+}
+
+async function processScheduleQueue() {
+  if (scheduleProcessing) return;
+  scheduleProcessing = true;
+  try {
+    while (true) {
+      const pending = getBackgroundJobs().filter((job) => job.status === "pending");
+      if (!pending.length) break;
+      const batch = pending.slice(0, getScheduleBatchSize());
+      await Promise.all(batch.map((job) => runScheduleJob(job)));
+    }
+  } finally {
+    scheduleProcessing = false;
+    renderSchedule();
+  }
+}
+
+function formatJobType(type) {
+  return type === "cloudThumbnailDownload" ? "下載雲端縮圖" : "ffmpeg.wasm 擷取縮圖";
+}
+
+function formatJobStatus(status) {
+  if (status === "done") return "完成";
+  if (status === "running") return "處理中";
+  if (status === "failed") return "失敗";
+  return "等待中";
+}
+
+function retryScheduleJob(job) {
+  if (!job || job.status !== "failed") return;
+  updateJob(job, {
+    status: "pending",
+    progress: 0,
+    message: "等待重新嘗試",
+    error: "",
+  });
+  wakeScheduleProcessor();
+}
+
+function renderSchedule() {
+  if (!dom.scheduleList || !dom.scheduleSummary) return;
+  const jobs = getBackgroundJobs();
+  const counts = jobs.reduce(
+    (acc, job) => {
+      acc[job.status] = (acc[job.status] || 0) + 1;
+      return acc;
+    },
+    { pending: 0, running: 0, done: 0, failed: 0 }
+  );
+  dom.scheduleBatchSizeInput.value = String(getScheduleBatchSize());
+  dom.scheduleSummary.innerHTML = "";
+  [
+    { status: "pending", label: "等待" },
+    { status: "running", label: "處理中" },
+    { status: "done", label: "完成" },
+    { status: "failed", label: "失敗" },
+  ].forEach(({ status, label }) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "schedule-filter-btn";
+    button.textContent = `${label} ${counts[status] || 0}`;
+    button.setAttribute("aria-pressed", String(scheduleStatusFilter === status));
+    button.addEventListener("click", () => {
+      scheduleStatusFilter = scheduleStatusFilter === status ? "" : status;
+      renderSchedule();
+    });
+    dom.scheduleSummary.appendChild(button);
+  });
+  dom.scheduleList.innerHTML = "";
+  const visibleJobs = scheduleStatusFilter
+    ? jobs.filter((job) => job.status === scheduleStatusFilter)
+    : jobs;
+  if (!visibleJobs.length) {
+    dom.scheduleList.innerHTML = scheduleStatusFilter
+      ? "<li>目前沒有符合此狀態的背景排程。</li>"
+      : "<li>目前沒有背景排程。</li>";
+    return;
+  }
+  [...visibleJobs].reverse().forEach((job) => {
+    const li = document.createElement("li");
+    li.className = `schedule-job schedule-job-${job.status}`;
+    if (job.status === "failed") {
+      li.tabIndex = 0;
+      li.setAttribute("role", "button");
+      li.setAttribute("aria-label", "重新嘗試此排程項目");
+      li.addEventListener("click", () => retryScheduleJob(job));
+      li.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        retryScheduleJob(job);
+      });
+    }
+    const source = findSourceById(job.sourceId);
+    const track = source ? findTrackFromSourceById(source, job.trackId) : null;
+    const meta = document.createElement("div");
+    meta.className = "track-meta schedule-job-meta";
+    const title = document.createElement("span");
+    title.className = "track-title";
+    title.textContent = `${formatJobType(job.type)}：${track?.name || job.trackId}`;
+    const status = document.createElement("span");
+    status.className = "track-duration";
+    status.textContent = formatJobStatus(job.status);
+    const progress = document.createElement("progress");
+    progress.max = 1;
+    progress.value = Number(job.progress || 0);
+    progress.title = `${Math.round(Number(job.progress || 0) * 100)}%`;
+    meta.append(title, status, progress);
+    if (job.error) {
+      const error = document.createElement("div");
+      error.className = "sync-info danger-text";
+      error.textContent = job.error;
+      meta.appendChild(error);
+    }
+    li.appendChild(meta);
+    dom.scheduleList.appendChild(li);
+  });
+}
+
+async function startPlayback(trackId, fromTime = 0, opts = {}) {
+  await playbackController.startPlayback(trackId, fromTime, opts);
 }
 
 function cacheHydratedTrackForSource(sourceId, track) {
@@ -1626,6 +2009,7 @@ function cacheHydratedTrackForSource(sourceId, track) {
         streamUrl: "",
         streamUrlExpiresAt: null,
         durationMs: track.durationMs ?? item.durationMs ?? null,
+        thumbnailKey: track.thumbnailKey ?? item.thumbnailKey ?? "",
         sizeBytes: track.sizeBytes ?? item.sizeBytes ?? null,
         modifiedAt: track.modifiedAt ?? item.modifiedAt ?? null,
         driveId: track.driveId ?? item.driveId ?? null,
@@ -1635,36 +2019,15 @@ function cacheHydratedTrackForSource(sourceId, track) {
 }
 
 async function playNext() {
-  syncPlaylistController();
-  const next = playlist.next();
-  if (!next) return;
-  await startPlayback(next.id, 0, { showInlineLoading: true, autoplay: true });
+  await playbackController.playNext();
 }
 
 async function playPrev() {
-  syncPlaylistController();
-  const prev = playlist.prev();
-  if (!prev) return;
-  await startPlayback(prev.id, 0, { showInlineLoading: true, autoplay: true });
+  await playbackController.playPrev();
 }
 
 async function recoverCurrentPlayback() {
-  const now = Date.now();
-  if (isRecoveringSource || now - lastRecoveryAt < 4000) return;
-  if (!state.playback.currentId) return;
-  isRecoveringSource = true;
-  lastRecoveryAt = now;
-  const resumeAt = dom.video.currentTime || state.playback.currentTime || 0;
-  try {
-    await startPlayback(state.playback.currentId, resumeAt, {
-      showInlineLoading: true,
-      autoplay: true,
-      silentError: true,
-      forceRefresh: true,
-    });
-  } finally {
-    isRecoveringSource = false;
-  }
+  await playbackController.recoverCurrentPlayback();
 }
 
 async function syncCloudVideos({ force = false } = {}) {
@@ -1696,6 +2059,7 @@ async function syncCloudVideos({ force = false } = {}) {
         if (sameFolder) {
           sourceCache.lastSyncedAt = new Date().toISOString();
           persistAndRender();
+          enqueueCloudThumbnailJobs(activeSource.id, cloudTracks);
           return;
         }
       } catch (markerError) {
@@ -1714,6 +2078,7 @@ async function syncCloudVideos({ force = false } = {}) {
         if (delta.changedVideos.length === 0 && delta.deletedIds.length === 0) {
           sourceCache.lastSyncedAt = new Date().toISOString();
           persistAndRender();
+          enqueueCloudThumbnailJobs(activeSource.id, cloudTracks);
           return;
         }
 
@@ -1745,6 +2110,7 @@ async function syncCloudVideos({ force = false } = {}) {
         sourceCache.lastSyncedAt = new Date().toISOString();
         ensurePlaybackTarget();
         persistAndRender();
+        enqueueCloudThumbnailJobs(activeSource.id, cloudTracks);
         return;
       } catch (error) {
         if (!shouldFallbackFromDelta(error)) {
@@ -1781,6 +2147,7 @@ async function syncCloudVideos({ force = false } = {}) {
         sourceCache.lastSyncedAt = new Date().toISOString();
         ensurePlaybackTarget();
         persistAndRender();
+        enqueueCloudThumbnailJobs(activeSource.id, cloudTracks);
         return;
       } catch (error) {
         console.warn("首次 delta 初始化失敗，改走 children 重建", error);
@@ -1821,6 +2188,7 @@ async function syncCloudVideos({ force = false } = {}) {
     sourceCache.lastSyncedAt = new Date().toISOString();
     ensurePlaybackTarget();
     persistAndRender();
+    enqueueCloudThumbnailJobs(activeSource.id, cloudTracks);
   } finally {
     setLoading(false);
   }
@@ -1851,25 +2219,23 @@ function mergeTrackWithCache(track, cached) {
     streamUrl: cached.streamUrl || track.streamUrl || "",
     streamUrlExpiresAt: cached.streamUrlExpiresAt || track.streamUrlExpiresAt || null,
     thumbnailUrl: track.thumbnailUrl || cached.thumbnailUrl || "",
+    thumbnailKey: cached.thumbnailKey || track.thumbnailKey || "",
     durationMs: track.durationMs || cached.durationMs || null,
     sizeBytes: track.sizeBytes ?? cached.sizeBytes ?? null,
   };
 }
 
 function seekBy(seconds) {
-  const duration = Number.isFinite(dom.video.duration) ? dom.video.duration : 0;
-  if (duration <= 0) return;
-  const nextTime = Math.min(duration, Math.max(0, dom.video.currentTime + seconds));
-  dom.video.currentTime = nextTime;
-  state.playback.currentTime = nextTime;
-  updatePlaybackProgress(nextTime, duration);
-  saveState(state);
+  playbackController.seekBy(seconds);
 }
 
-function shouldIgnoreHotkey(event) {
+function shouldIgnoreHotkey(event, action = "") {
   if (event.metaKey) return true;
   const target = event.target;
   if (!(target instanceof HTMLElement)) return false;
+  if (target.classList.contains("shortcut-input")) return true;
+  if (String(action || "").startsWith("route")) return false;
+  if (target === dom.volumeInput || target === dom.speedSelect) return false;
   const tag = target.tagName;
   return (
     tag === "INPUT" ||
@@ -1880,13 +2246,43 @@ function shouldIgnoreHotkey(event) {
   );
 }
 
+function setVolumeByDelta(delta) {
+  const next = Math.max(0, Math.min(1, Number(state.prefs.volume || 0) + delta));
+  state.prefs.volume = Math.round(next * 100) / 100;
+  if (state.prefs.volume > 0) state.prefs.muted = false;
+  playbackController.setVolume(state.prefs.volume);
+  playbackController.setMuted(state.prefs.muted);
+  persistAndRender();
+}
+
+function setPlaybackRateByStep(direction) {
+  const options = Array.from(dom.speedSelect.options)
+    .map((option) => Number(option.value))
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => a - b);
+  if (!options.length) return;
+  const current = Number(state.prefs.playbackRate || 1);
+  let idx = options.findIndex((value) => value >= current);
+  if (idx < 0) idx = options.length - 1;
+  if (direction < 0 && options[idx] >= current) idx -= 1;
+  if (direction > 0 && options[idx] <= current) idx += 1;
+  const next = options[Math.max(0, Math.min(options.length - 1, idx))];
+  state.prefs.playbackRate = next;
+  playbackController.setPlaybackRate(next);
+  persistAndRender();
+}
+
 function executeShortcutAction(action, event = null) {
   if (!action) return;
   if (event && typeof event.preventDefault === "function") {
     event.preventDefault();
   }
+  if (String(action).startsWith("key:")) {
+    action = resolveActionByValue(state.prefs.hotkeys, String(action).slice(4));
+    if (!action) return;
+  }
   if (action === "playPause") {
-    player.togglePlay();
+    playbackController.togglePlay();
     return;
   }
   if (action === "seekBack") {
@@ -1907,7 +2303,7 @@ function executeShortcutAction(action, event = null) {
   }
   if (action === "toggleMute") {
     state.prefs.muted = !state.prefs.muted;
-    player.setMuted(state.prefs.muted);
+    playbackController.setMuted(state.prefs.muted);
     persistAndRender();
     return;
   }
@@ -1930,17 +2326,74 @@ function executeShortcutAction(action, event = null) {
     return;
   }
   if (action === "toggleFullscreen") {
-    player.toggleFullscreen().catch(() => {});
+    playbackController.toggleFullscreen().catch(() => {});
     syncPlayerPrefs();
+    return;
+  }
+  if (action === "routePlayer") {
+    updateRoute("/player");
+    return;
+  }
+  if (action === "routePlaylist") {
+    updateRoute("/playlist");
+    return;
+  }
+  if (action === "routeSchedule") {
+    updateRoute("/schedule");
+    return;
+  }
+  if (action === "routeSettings") {
+    updateRoute("/settings");
+    return;
+  }
+  if (action === "volumeUp") {
+    setVolumeByDelta(0.05);
+    return;
+  }
+  if (action === "volumeDown") {
+    setVolumeByDelta(-0.05);
+    return;
+  }
+  if (action === "speedUp") {
+    setPlaybackRateByStep(1);
+    return;
+  }
+  if (action === "speedDown") {
+    setPlaybackRateByStep(-1);
   }
 }
 
-function normalizeMouseShortcut(event) {
+function normalizeMouseShortcut(event, { allowRightClick = false } = {}) {
   if (!event) return "";
   if (event.button === 0) return "leftClick";
   if (event.button === 1) return "middleClick";
-  if (event.button === 2) return "rightClick";
+  if (event.button === 2 && allowRightClick) return "rightClick";
   return "";
+}
+
+function normalizeMouseSpecialShortcut(event) {
+  const combo = normalizeShortcut(event);
+  if (!combo) return "";
+  const base = combo.split("+").pop();
+  const allowed = new Set([
+    "Backspace",
+    "Tab",
+    "Enter",
+    "Escape",
+    "Insert",
+    "Delete",
+    "Home",
+    "End",
+    "PageUp",
+    "PageDown",
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+  ]);
+  for (let i = 1; i <= 12; i += 1) allowed.add(`F${i}`);
+  if (!allowed.has(base)) return "";
+  return `key:${combo}`;
 }
 
 function resolveActionByValue(map, value) {
@@ -1952,12 +2405,15 @@ function resolveActionByValue(map, value) {
 
 function bindHotkeys() {
   window.addEventListener("keydown", (event) => {
-    if (!state.prefs.hotkeysEnabled || shouldIgnoreHotkey(event)) return;
+    if (!state.prefs.hotkeysEnabled) return;
 
     const combo = normalizeShortcut(event);
     if (!combo) return;
-    const action = resolveActionByValue(state.prefs.hotkeys, combo);
+    const action =
+      resolveActionByValue(state.prefs.hotkeys, combo) ||
+      resolveActionByValue(state.prefs.mouseHotkeys, `key:${combo}`);
     if (!action) return;
+    if (shouldIgnoreHotkey(event, action)) return;
     executeShortcutAction(action, event);
   });
 }
@@ -2069,6 +2525,12 @@ function bindShortcutEditors() {
       if (event.key === "Backspace" || event.key === "Delete") {
         setPointerShortcutValue("mouse", action, "");
         mouseInput.blur();
+        return;
+      }
+      const special = normalizeMouseSpecialShortcut(event);
+      if (special) {
+        setPointerShortcutValue("mouse", action, special);
+        mouseInput.blur();
       }
     });
 
@@ -2112,7 +2574,7 @@ function bindShortcutEditors() {
   );
   window.addEventListener("mousedown", (event) => {
     if (capturingPointerShortcut?.mode !== "mouse") return;
-    const gesture = normalizeMouseShortcut(event);
+    const gesture = normalizeMouseShortcut(event, { allowRightClick: true });
     if (!gesture) return;
     setPointerShortcutValue("mouse", capturingPointerShortcut.action, gesture);
     event.preventDefault();
@@ -2129,6 +2591,22 @@ function bindShortcutEditors() {
 }
 
 function bindEvents() {
+  window.addEventListener(
+    "contextmenu",
+    (event) => {
+      if (capturingPointerShortcut?.mode === "mouse") {
+        event.preventDefault();
+        return;
+      }
+      const action = resolveActionByValue(state.prefs.mouseHotkeys, "rightClick");
+      if (action) {
+        executeShortcutAction(action, event);
+        return;
+      }
+      event.preventDefault();
+    },
+    { capture: true }
+  );
   window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();
     deferredInstallPrompt = event;
@@ -2140,7 +2618,15 @@ function bindEvents() {
   });
   dom.navPlayerBtn.addEventListener("click", () => updateRoute("/player"));
   dom.navPlaylistBtn.addEventListener("click", () => updateRoute("/playlist"));
+  dom.navScheduleBtn.addEventListener("click", () => updateRoute("/schedule"));
   dom.navSettingsBtn.addEventListener("click", () => updateRoute("/settings"));
+  dom.updateScheduleBatchBtn?.addEventListener("click", () => {
+    const value = Number(dom.scheduleBatchSizeInput.value);
+    state.background.batchSize = Number.isFinite(value) ? Math.min(12, Math.max(1, Math.round(value))) : 2;
+    saveState(state);
+    renderSchedule();
+    wakeScheduleProcessor();
+  });
   dom.settingsTabSourceBtn?.addEventListener("click", () => {
     settingsActiveTab = "source";
     renderSettingsTab();
@@ -2183,10 +2669,10 @@ function bindEvents() {
     } catch (error) {
       console.error(error);
       if (String(error?.name || "") === "InvalidSourceError") {
-        setModalError(dom.onedriveSourceError, "來源不合法");
+        setModalError(dom.onedriveSourceError, getErrorMessage(error));
         return;
       }
-      setModalError(dom.onedriveSourceError, "來源不合法");
+      setModalError(dom.onedriveSourceError, getErrorMessage(error));
     }
   });
   dom.pickLocalFilesBtn?.addEventListener("click", async () => {
@@ -2226,10 +2712,10 @@ function bindEvents() {
     } catch (error) {
       console.error(error);
       if (String(error?.name || "") === "InvalidSourceError") {
-        setModalError(dom.localSourceError, "來源不合法");
+        setModalError(dom.localSourceError, getErrorMessage(error));
         return;
       }
-      setModalError(dom.localSourceError, "來源不合法");
+      setModalError(dom.localSourceError, getErrorMessage(error));
     }
   });
   dom.installAppBtn.addEventListener("click", () => installApp());
@@ -2396,14 +2882,14 @@ function bindEvents() {
   dom.customViewModeBtn.addEventListener("click", () => toggleListViewMode("custom"));
   dom.queueViewModeBtn.addEventListener("click", () => toggleListViewMode("queue"));
 
-  dom.playBtn.addEventListener("click", () => player.togglePlay());
+  dom.playBtn.addEventListener("click", () => playbackController.togglePlay());
   dom.prevBtn.addEventListener("click", playPrev);
   dom.rewindBtn.addEventListener("click", () => seekBy(-10));
   dom.nextBtn.addEventListener("click", playNext);
   dom.forwardBtn.addEventListener("click", () => seekBy(10));
   dom.fullscreenBtn.addEventListener("click", async () => {
     try {
-      await player.toggleFullscreen();
+      await playbackController.toggleFullscreen();
       syncPlayerPrefs();
     } catch (error) {
       console.error(error);
@@ -2412,7 +2898,7 @@ function bindEvents() {
   document.addEventListener("fullscreenchange", () => syncPlayerPrefs());
   document.addEventListener("fullscreenchange", () => revealFullscreenControls());
   document.addEventListener("fullscreenchange", () => {
-    if (!player.isFullscreen()) {
+    if (!playbackController.isFullscreen()) {
       dom.playerPanel.classList.remove("controls-hidden");
     }
   });
@@ -2431,20 +2917,26 @@ function bindEvents() {
 
   dom.volumeInput.addEventListener("input", () => {
     state.prefs.volume = Number(dom.volumeInput.value);
-    player.setVolume(state.prefs.volume);
+    playbackController.setVolume(state.prefs.volume);
     saveState(state);
+  });
+  dom.volumeInput.addEventListener("change", () => {
+    dom.volumeInput.blur();
+    dom.video.focus({ preventScroll: true });
   });
 
   dom.muteBtn.addEventListener("click", () => {
     state.prefs.muted = !state.prefs.muted;
-    player.setMuted(state.prefs.muted);
+    playbackController.setMuted(state.prefs.muted);
     persistAndRender();
   });
 
   dom.speedSelect.addEventListener("change", () => {
     state.prefs.playbackRate = Number(dom.speedSelect.value);
-    player.setPlaybackRate(state.prefs.playbackRate);
+    playbackController.setPlaybackRate(state.prefs.playbackRate);
     saveState(state);
+    dom.speedSelect.blur();
+    dom.video.focus({ preventScroll: true });
   });
 
   dom.hotkeysToggle.addEventListener("change", () => {
@@ -2453,7 +2945,9 @@ function bindEvents() {
   });
 
   dom.newListBtn.addEventListener("click", () => {
-    const name = window.prompt("請輸入新清單名稱");
+    const rawName = window.prompt("請輸入新清單名稱");
+    if (rawName === null) return;
+    const name = normalizeCustomListName(rawName);
     if (!name) return;
     const id = `list-${Date.now()}`;
     state.custom.lists.push({ id, name, tracks: [] });
@@ -2510,7 +3004,7 @@ function bindEvents() {
   });
 
   dom.progressInput.addEventListener("input", () => {
-    isScrubbing = true;
+    playbackController.setScrubbing(true);
     const duration = Number.isFinite(dom.video.duration) ? dom.video.duration : 0;
     const ratio = Number(dom.progressInput.value) / 1000;
     updatePlaybackProgress(duration * ratio, duration);
@@ -2525,12 +3019,12 @@ function bindEvents() {
       state.playback.currentTime = targetTime;
       saveState(state);
     }
-    isScrubbing = false;
+    playbackController.setScrubbing(false);
     updatePlaybackProgress(dom.video.currentTime, dom.video.duration);
   });
 
   dom.progressInput.addEventListener("pointerdown", () => {
-    isScrubbing = true;
+    playbackController.setScrubbing(true);
   });
 }
 
@@ -2577,6 +3071,8 @@ async function bootstrap() {
   renderCustomTracks();
   renderListLabels();
   renderQueueList();
+  renderSchedule();
+  wakeScheduleProcessor();
 
   let syncSucceeded = false;
   if (activeSource?.type === "local") {

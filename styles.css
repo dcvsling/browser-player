@@ -194,6 +194,10 @@ body.route-settings .layout {
   grid-template-columns: minmax(0, 1fr);
 }
 
+body.route-schedule .layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .panel {
   background: linear-gradient(150deg, var(--panel), var(--panel-2));
   border: 1px solid var(--line);
@@ -738,6 +742,57 @@ button[aria-pressed="true"] {
   min-height: 0;
 }
 
+.schedule-panel {
+  min-height: 0;
+}
+
+.schedule-panel .head-actions input {
+  width: 88px;
+}
+
+.schedule-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.schedule-filter-btn {
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+
+.schedule-filter-btn[aria-pressed="true"] {
+  border-color: var(--brand);
+  color: var(--brand-2);
+  background: rgba(23, 43, 70, 0.92);
+}
+
+.schedule-list .schedule-job {
+  cursor: default;
+}
+
+.schedule-list .schedule-job-failed {
+  cursor: pointer;
+}
+
+.schedule-job-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 180px;
+  width: 100%;
+}
+
+.schedule-job-meta progress {
+  width: 100%;
+  accent-color: var(--brand);
+}
+
+.danger-text {
+  color: #ffd9df;
+  grid-column: 1 / -1;
+}
+
 #installAppBtn:not(.hidden) {
   display: inline-flex;
 }
@@ -997,9 +1052,18 @@ button[aria-pressed="true"] {
     display: none;
   }
 
+  body.mobile-layout.route-schedule .schedule-panel .panel-head {
+    gap: 8px;
+  }
+
   body.mobile-layout.route-settings .settings-panel {
     gap: 8px;
     padding-top: 10px;
+  }
+
+  body.mobile-layout.route-schedule .schedule-job-meta {
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
 
   body.mobile-layout.route-settings .settings-tabs {

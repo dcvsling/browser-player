@@ -16,6 +16,10 @@ function createEmptyCloudCache() {
 }
 
 const defaultState = {
+  background: {
+    batchSize: 2,
+    jobs: [],
+  },
   prefs: {
     shuffle: false,
     repeatMode: "off",
@@ -44,6 +48,14 @@ const defaultState = {
       cycleRepeat: "",
       toggleQueue: "",
       toggleFullscreen: "",
+      routePlayer: "F1",
+      routePlaylist: "F2",
+      routeSettings: "F3",
+      routeSchedule: "F4",
+      volumeUp: "",
+      volumeDown: "",
+      speedUp: "",
+      speedDown: "",
     },
     touchHotkeys: {
       playPause: "tap",
@@ -56,6 +68,14 @@ const defaultState = {
       cycleRepeat: "",
       toggleQueue: "",
       toggleFullscreen: "",
+      routePlayer: "",
+      routePlaylist: "",
+      routeSchedule: "",
+      routeSettings: "",
+      volumeUp: "",
+      volumeDown: "",
+      speedUp: "",
+      speedDown: "",
     },
     mouseHotkeys: {
       playPause: "leftClick",
@@ -68,6 +88,14 @@ const defaultState = {
       cycleRepeat: "",
       toggleQueue: "",
       toggleFullscreen: "",
+      routePlayer: "",
+      routePlaylist: "",
+      routeSchedule: "",
+      routeSettings: "",
+      volumeUp: "",
+      volumeDown: "",
+      speedUp: "",
+      speedDown: "",
     },
   },
   playback: {
@@ -121,6 +149,7 @@ export function saveState(state) {
 
 function mergeDefaults(input) {
   return {
+    background: normalizeBackground(input?.background),
     prefs: {
       ...defaultState.prefs,
       ...(input?.prefs || {}),
@@ -215,6 +244,7 @@ function normalizeCloudTracks(tracks) {
       streamUrl: String(item.streamUrl || ""),
       streamUrlExpiresAt: item.streamUrlExpiresAt ? String(item.streamUrlExpiresAt) : null,
       thumbnailUrl: String(item.thumbnailUrl || ""),
+      thumbnailKey: String(item.thumbnailKey || ""),
       durationMs: Number.isFinite(Number(item.durationMs)) ? Math.round(Number(item.durationMs)) : null,
       sizeBytes: Number.isFinite(Number(item.sizeBytes)) ? Math.round(Number(item.sizeBytes)) : null,
       source: "cloud",
@@ -225,6 +255,28 @@ function normalizeCloudTracks(tracks) {
       localSourceId: item.localSourceId ? String(item.localSourceId) : null,
       localFileId: item.localFileId ? String(item.localFileId) : null,
     }));
+}
+
+function normalizeBackground(background) {
+  const batchSize = Number(background?.batchSize);
+  const jobs = Array.isArray(background?.jobs) ? background.jobs : [];
+  return {
+    batchSize: Number.isFinite(batchSize) && batchSize > 0 ? Math.min(12, Math.max(1, Math.round(batchSize))) : 2,
+    jobs: jobs
+      .filter((job) => job && job.id && job.type && job.sourceId && job.trackId)
+      .map((job) => ({
+        id: String(job.id),
+        type: job.type === "cloudThumbnailDownload" ? "cloudThumbnailDownload" : "localThumbnailExtract",
+        sourceId: String(job.sourceId),
+        trackId: String(job.trackId),
+        status: ["pending", "running", "done", "failed"].includes(job.status) ? job.status : "pending",
+        progress: Number.isFinite(Number(job.progress)) ? Math.max(0, Math.min(1, Number(job.progress))) : 0,
+        message: String(job.message || ""),
+        createdAt: job.createdAt ? String(job.createdAt) : new Date().toISOString(),
+        updatedAt: job.updatedAt ? String(job.updatedAt) : null,
+        error: job.error ? String(job.error) : "",
+      })),
+  };
 }
 
 function normalizeCloudCache(cache) {

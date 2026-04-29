@@ -4,6 +4,7 @@ const ROUTE_SUFFIXES = [
   "/index.html",
   "/player",
   "/playlist",
+  "/schedule",
   "/settings",
   "/404.html",
 ];
@@ -18,6 +19,7 @@ export function normalizePath(pathname) {
 export function normalizeRoute(pathname) {
   const normalizedPath = normalizePath(pathname);
   if (normalizedPath === "/playlist") return "/playlist";
+  if (normalizedPath === "/schedule") return "/schedule";
   if (normalizedPath === "/settings") return "/settings";
   return "/player";
 }

@@ -77,6 +77,11 @@ function toIsoOrNull(value) {
 }
 
 async function extractThumbnailWithFfmpeg(file, sourceId, id) {
+  const blob = await extractThumbnailBlobWithFfmpeg(file, sourceId, id);
+  return blob ? URL.createObjectURL(blob) : "";
+}
+
+export async function extractThumbnailBlobWithFfmpeg(file, sourceId, id) {
   const ffmpeg = await ensureFfmpeg();
   const inName = `in-${sourceId}-${id}.mp4`;
   const outName = `thumb-${sourceId}-${id}.jpg`;
@@ -93,10 +98,9 @@ async function extractThumbnailWithFfmpeg(file, sourceId, id) {
       outName,
     ]);
     const imageData = await ffmpeg.readFile(outName);
-    const blob = new Blob([imageData.buffer], { type: "image/jpeg" });
-    return URL.createObjectURL(blob);
+    return new Blob([imageData.buffer], { type: "image/jpeg" });
   } catch {
-    return "";
+    return null;
   } finally {
     try {
       await ffmpeg.deleteFile(inName);
@@ -116,6 +120,8 @@ export async function buildLocalSourceTracks({
   files,
   acceptedExt = DEFAULT_ACCEPTED_EXT,
   onProgress,
+  extractThumbnails = false,
+  extractDurations = false,
 }) {
   const fileList = Array.isArray(files) ? files.filter(Boolean) : [];
   const accepted = fileList.filter((file) => isAcceptedFile(file, acceptedExt));
@@ -125,8 +131,8 @@ export async function buildLocalSourceTracks({
   for (let i = 0; i < accepted.length; i += 1) {
     const file = accepted[i];
     const id = createLocalTrackId(sourceId, file);
-    const durationMs = await getDurationFromFile(file);
-    const thumbnailUrl = await extractThumbnailWithFfmpeg(file, sourceId, i);
+    const durationMs = extractDurations ? await getDurationFromFile(file) : null;
+    const thumbnailUrl = extractThumbnails ? await extractThumbnailWithFfmpeg(file, sourceId, i) : "";
     const track = {
       id,
       name: file.name,
@@ -134,6 +140,7 @@ export async function buildLocalSourceTracks({
       streamUrl: "",
       streamUrlExpiresAt: null,
       thumbnailUrl,
+      thumbnailKey: "",
       durationMs,
       sizeBytes: Number.isFinite(file.size) ? Math.round(file.size) : null,
       source: "local",

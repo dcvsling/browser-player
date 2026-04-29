@@ -153,6 +153,38 @@ export async function hydrateTrackStreamUrl(accessToken, track, options = {}) {
   };
 }
 
+export async function fetchLatestThumbnailUrl(accessToken, track, options = {}) {
+  const { childrenEndpoint = APP_CONFIG.graph.childrenEndpoint } = options;
+  if (!track?.id) return "";
+
+  const root = tryParseRootFromChildrenEndpoint(childrenEndpoint);
+  const fallbackDriveId = root?.driveId || null;
+  const driveId = track.driveId || fallbackDriveId;
+  const baseUrl = driveId
+    ? `https://graph.microsoft.com/v1.0/drives/${strictEncodePathSegment(
+        driveId
+      )}/items/${strictEncodePathSegment(track.id)}`
+    : `https://graph.microsoft.com/v1.0/me/drive/items/${strictEncodePathSegment(track.id)}`;
+  const url = `${baseUrl}?$select=id&$expand=thumbnails`;
+
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  if (!res.ok) {
+    throw await toGraphError("取得最新縮圖失敗", res);
+  }
+
+  const data = await res.json();
+  return (
+    data?.thumbnails?.[0]?.large?.url ||
+    data?.thumbnails?.[0]?.medium?.url ||
+    data?.thumbnails?.[0]?.small?.url ||
+    ""
+  );
+}
+
 export function computeLatest(tracks) {
   if (!Array.isArray(tracks) || tracks.length === 0) {
     return { latestModifiedAt: null, latestItemId: null };
