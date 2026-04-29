@@ -49,6 +49,37 @@ export async function saveLocalRuntimeFile(
   });
 }
 
+export async function saveLocalRuntimeFilesBatch(
+  sourceId: string,
+  entries: Array<[string, File]>,
+  onProgress?: (progress: { current: number; total: number }) => void
+): Promise<void> {
+  const db = await openDb();
+  const total = entries.length;
+  for (let i = 0; i < entries.length; i += 1) {
+    const [fileId, file] = entries[i];
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, "readwrite");
+      const store = tx.objectStore(STORE_NAME);
+      store.put({
+        id: makeKey(sourceId, fileId),
+        sourceId: String(sourceId || ""),
+        fileId: String(fileId || ""),
+        blob: file,
+        name: String(file.name || "local.mp4"),
+        type: String(file.type || "video/mp4"),
+        lastModified: Number(file.lastModified || Date.now()),
+        updatedAt: new Date().toISOString(),
+      });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error("IndexedDB 寫入失敗"));
+      tx.onabort = () => reject(tx.error || new Error("IndexedDB 寫入中止"));
+    });
+    onProgress?.({ current: i + 1, total });
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  }
+}
+
 export async function loadLocalRuntimeFile(
   sourceId: string,
   fileId: string

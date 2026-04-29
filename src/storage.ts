@@ -266,7 +266,9 @@ function normalizeBackground(background) {
       .filter((job) => job && job.id && job.type && job.sourceId && job.trackId)
       .map((job) => ({
         id: String(job.id),
-        type: job.type === "cloudThumbnailDownload" ? "cloudThumbnailDownload" : "localThumbnailExtract",
+        type: ["cloudThumbnailDownload", "localRuntimePersist"].includes(job.type)
+          ? job.type
+          : "localThumbnailExtract",
         sourceId: String(job.sourceId),
         trackId: String(job.trackId),
         status: ["pending", "running", "done", "failed"].includes(job.status) ? job.status : "pending",

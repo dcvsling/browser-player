@@ -23,7 +23,7 @@ import { buildLocalSourceTracks, extractThumbnailBlobWithFfmpeg } from "./local-
 import {
   loadLocalRuntimeFile,
   removeLocalRuntimeFilesBySource,
-  saveLocalRuntimeFile,
+  saveLocalRuntimeFilesBatch,
 } from "./local-runtime-cache.js";
 import { SourceAccessOrchestrator } from "./source-access.js";
 import { SourceManager } from "./source-manager.js";
@@ -1272,11 +1272,66 @@ function updateLocalSelectionInfo() {
 }
 
 async function persistLocalRuntimeFiles(sourceId, runtimeFiles) {
-  const tasks = [];
-  runtimeFiles.forEach((file, fileId) => {
-    tasks.push(saveLocalRuntimeFile(sourceId, fileId, file));
+  const entries = Array.from(runtimeFiles.entries());
+  await saveLocalRuntimeFilesBatch(sourceId, entries, (progress) => {
+    const message = `保存本機檔案存取中... ${progress.current}/${progress.total}`;
+    const job = getBackgroundJobs().find((item) => item.id === `localRuntimePersist:${sourceId}`);
+    if (job) {
+      job.progress = progress.total > 0 ? progress.current / progress.total : 0;
+      job.message = message;
+      job.updatedAt = new Date().toISOString();
+      saveState(state);
+      renderSchedule();
+    }
   });
-  await Promise.all(tasks);
+}
+
+function enqueueLocalRuntimePersistJob(sourceId, runtimeFiles) {
+  const total = runtimeFiles?.size || 0;
+  if (!total) return;
+  const jobs = getBackgroundJobs();
+  const id = `localRuntimePersist:${sourceId}`;
+  let job = jobs.find((item) => item.id === id);
+  if (!job) {
+    job = {
+      id,
+      type: "localRuntimePersist",
+      sourceId,
+      trackId: sourceId,
+      status: "pending",
+      progress: 0,
+      message: `等待保存本機檔案存取... 0/${total}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: null,
+      error: "",
+    };
+    jobs.push(job);
+  } else if (job.status === "failed") {
+    job.status = "pending";
+    job.progress = 0;
+    job.error = "";
+  }
+  saveState(state);
+  renderSchedule();
+  window.setTimeout(async () => {
+    updateJob(job, {
+      status: "running",
+      progress: 0,
+      message: `保存本機檔案存取中... 0/${total}`,
+      error: "",
+    });
+    try {
+      await persistLocalRuntimeFiles(sourceId, runtimeFiles);
+      updateJob(job, { status: "done", progress: 1, message: "本機檔案存取已保存", error: "" });
+    } catch (error) {
+      updateJob(job, {
+        status: "failed",
+        progress: 0,
+        message: "本機檔案存取保存失敗",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, 0);
 }
 
 async function collectFilesFromDirectoryHandle(directoryHandle, recursive) {
@@ -1372,7 +1427,7 @@ async function addLocalSource() {
     getLocalDataForSource(sourceId).recursive = recursive;
     getLocalDataForSource(sourceId).importMode = pendingLocalImportMode;
     sourceManager.setRuntimeFiles(sourceId, runtimeFiles);
-    await persistLocalRuntimeFiles(sourceId, runtimeFiles);
+    enqueueLocalRuntimePersistJob(sourceId, runtimeFiles);
     enqueueLocalThumbnailJobs(sourceId, tracks);
 
     resetLocalSourceDraft();
@@ -1802,7 +1857,7 @@ function updateTrackThumbnailKey(sourceId, trackId, thumbnailKey) {
 }
 
 async function processLocalThumbnailJob(job) {
-  const file = await loadLocalRuntimeFile(job.sourceId, job.trackId);
+  const file = sourceManager.getRuntimeFile(job.sourceId, job.trackId) || await loadLocalRuntimeFile(job.sourceId, job.trackId);
   if (!file) throw new Error("找不到本機檔案，請重新匯入來源。");
   const blob = await extractThumbnailBlobWithFfmpeg(file, job.sourceId, job.trackId);
   if (!blob) throw new Error("ffmpeg.wasm 無法擷取縮圖。");
@@ -1882,6 +1937,7 @@ async function processScheduleQueue() {
 }
 
 function formatJobType(type) {
+  if (type === "localRuntimePersist") return "保存本機檔案存取";
   return type === "cloudThumbnailDownload" ? "下載雲端縮圖" : "ffmpeg.wasm 擷取縮圖";
 }
 
