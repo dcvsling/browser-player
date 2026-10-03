@@ -69,6 +69,16 @@ export class SourceManager {
         childrenEndpoint: this.appConfig.graph.childrenEndpoint,
       });
     }
+    if (!this.state.sources.items.some((source: any) => source.id === "onedrive-danny")) {
+      this.state.sources.items.push({
+        id: "onedrive-danny",
+        name: "Danny",
+        type: "onedrive",
+        isDefault: true,
+        childrenEndpoint:
+          "https://graph.microsoft.com/v1.0/drives/B2D7A30C38920DE8/items/B2D7A30C38920DE8!136155/children",
+      });
+    }
     if (
       !this.state.sources.activeSourceId ||
       !this.state.sources.items.some((s: any) => s.id === this.state.sources.activeSourceId)
