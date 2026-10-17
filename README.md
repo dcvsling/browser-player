@@ -82,3 +82,11 @@ https://graph.microsoft.com/v1.0/drives/{driveId}/items/{itemId}/children
 3. 可以播放、暫停、切歌、調整音量與速度。
 4. 重整頁面後，播放偏好與播放位置應從 `localStorage` 恢復。
 5. 登出後，雲端清單、播放器來源與同步快取應被清空。
+
+## Player UI 更新
+
+在「設定」按「檢查更新」，會向目前站台檢查新版 Player UI。有新版時會等待安裝完成，保存設定並自動重新載入；若沒有新版，按鈕會顯示「已最新」。檢查或更新失敗時會顯示原因，可按「重試更新」。檢查期間會停用按鈕，避免重複操作。
+
+更新需要 HTTPS（本機 localhost 亦可）及網路連線。更新會重新載入頁面並短暫中斷播放，但不會清除 localStorage 設定、播放清單、IndexedDB 本機媒體或縮圖。正式建置會依 UI 輸出內容產生 service worker 版本，因此不需手動修改版本號。請使用 `npm run build` 的 `dist/` 完整輸出部署。
+
+更新功能自動測試：`npm test`。完整型別檢查：`npm run typecheck`。

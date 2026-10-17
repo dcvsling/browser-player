@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { createPlayerUpdateAction } from "./player-update.js";
 import { APP_CONFIG } from "./config.js";
 import { initAuth, login, logout, getAccessToken, getAccount } from "./auth.js";
 import {
@@ -105,6 +106,7 @@ let fullscreenControlsTimer = 0;
 let deferredInstallPrompt = null;
 let pwaUpdatePromptOpen = false;
 let pwaControllerChanged = false;
+let pwaRegistration = null;
 let isMobileLayout = window.matchMedia("(max-width: 900px)").matches;
 let mobilePlayerChromeVisible = false;
 let mobileCloudToolsVisible = false;
@@ -138,6 +140,8 @@ const dom = {
   navScheduleBtn: document.getElementById("navScheduleBtn"),
   navSettingsBtn: document.getElementById("navSettingsBtn"),
   installAppBtn: document.getElementById("installAppBtn"),
+  checkPlayerUpdateBtn: document.getElementById("checkPlayerUpdateBtn"),
+  playerUpdateStatus: document.getElementById("playerUpdateStatus"),
   mobileMenuBtn: document.getElementById("mobileMenuBtn"),
   accountBadge: document.getElementById("accountBadge"),
   accountAvatar: document.getElementById("accountAvatar"),
@@ -246,6 +250,26 @@ const dom = {
     speedDown: document.getElementById("shortcut-speedDown"),
   },
 };
+
+const playerUpdateAction = createPlayerUpdateAction({
+  getRegistration: async () => pwaRegistration || await registerPwa(),
+  beforeActivate: () => saveState(state),
+  onUpdated: reloadForPlayerUpdate,
+  onState: (status, message) => {
+    const labels = { idle: "檢查更新", checking: "檢查中…", updating: "更新中…", latest: "已最新", error: "重試更新" };
+    dom.checkPlayerUpdateBtn.textContent = labels[status];
+    dom.checkPlayerUpdateBtn.disabled = status === "checking" || status === "updating";
+    dom.checkPlayerUpdateBtn.setAttribute("aria-busy", String(dom.checkPlayerUpdateBtn.disabled));
+    dom.playerUpdateStatus.textContent = message;
+  },
+});
+
+function reloadForPlayerUpdate() {
+  if (pwaControllerChanged) return;
+  saveState(state);
+  pwaControllerChanged = true;
+  window.location.reload();
+}
 
 const sourceManager = new SourceManager({
   state,
@@ -507,10 +531,12 @@ async function registerPwa() {
   try {
     const registration = await navigator.serviceWorker.register(buildAppUrl("/sw.js", appBasePath), {
       scope: buildAppUrl("/", appBasePath),
+      updateViaCache: "none",
     });
+    pwaRegistration = registration;
 
     const askToActivateWaitingWorker = (worker) => {
-      if (!worker || pwaUpdatePromptOpen) return;
+      if (!worker || pwaUpdatePromptOpen || playerUpdateAction.busy) return;
       pwaUpdatePromptOpen = true;
       const shouldUpdateNow = window.confirm("偵測到新版本，是否立即更新？");
       pwaUpdatePromptOpen = false;
@@ -537,15 +563,12 @@ async function registerPwa() {
       });
     });
 
-    navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if (pwaControllerChanged) return;
-      pwaControllerChanged = true;
-      window.location.reload();
-    });
+    navigator.serviceWorker.addEventListener("controllerchange", reloadForPlayerUpdate);
 
     window.setInterval(() => {
-      registration.update().catch(() => {});
+      if (!playerUpdateAction.busy) registration.update().catch(() => {});
     }, 5 * 60 * 1000);
+    return registration;
   } catch (error) {
     console.warn("PWA service worker 註冊失敗", error);
   }
@@ -2676,6 +2699,7 @@ function bindEvents() {
   dom.navPlaylistBtn.addEventListener("click", () => updateRoute("/playlist"));
   dom.navScheduleBtn.addEventListener("click", () => updateRoute("/schedule"));
   dom.navSettingsBtn.addEventListener("click", () => updateRoute("/settings"));
+  dom.checkPlayerUpdateBtn.addEventListener("click", () => playerUpdateAction.check());
   dom.updateScheduleBatchBtn?.addEventListener("click", () => {
     const value = Number(dom.scheduleBatchSizeInput.value);
     state.background.batchSize = Number.isFinite(value) ? Math.min(12, Math.max(1, Math.round(value))) : 2;
